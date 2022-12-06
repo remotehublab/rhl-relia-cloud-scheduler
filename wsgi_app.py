@@ -4,7 +4,7 @@ import sys
 project_dir = os.path.abspath(os.path.dirname(__file__))
 
 sys.path.insert(0, project_dir)
-os.chdir(LAB_DIR)
+os.chdir(project_dir)
 
 if not os.path.exists('logs'):
     os.mkdir('logs')
