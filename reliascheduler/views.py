@@ -1,6 +1,6 @@
 from flask import Blueprint
 
-from datauploader import redis_store
+from reliascheduler import redis_store
 
 
 main_blueprint = Blueprint('main', __name__)
