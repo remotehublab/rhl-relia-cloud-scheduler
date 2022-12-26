@@ -43,7 +43,7 @@ transmitterName = os.path.basename(transmitterURL)
 receiverName = os.path.basename(receiverURL)
 
 # Load into Redis
-r = redis.Redis(host='127.0.0.1', port=6003, db=0)
+r = redis.Redis()
 k = Keys('uw-depl1')
 t = Keys.Task(k, id)
 q = Keys.queuePriority(k, '1')

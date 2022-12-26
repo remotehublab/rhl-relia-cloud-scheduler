@@ -23,7 +23,7 @@ def load_task():
     current_user = get_current_user()
     if current_user['anonymous']:
     	return _corsify_actual_response(jsonify(success=False))
-    r = redis.Redis(host='127.0.0.1', port=6002, db=0)
+    r = redis.Redis()
     k = Keys('uw-depl1')
     t = Keys.Task(k, id)
     q = Keys.queuePriority(k, '1')
