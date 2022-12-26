@@ -1,5 +1,31 @@
 import os
 
+class Keys:
+    def __init__(self, base_key):
+        self.base_key = base_key
+   
+    @property
+    def tasks(self):
+        return f"{self.base_key}:relia:scheduler:tasks"
+
+    class Task:
+        def __init__(self, base_key, task_identifier):
+             self.base_key = base_key
+             self.task_identifier = task_identifier
+
+        @property
+        def identifiers(self):
+             return f"{self.base_key}:relia:scheduler:tasks:{self.task_identifier}"
+
+    class queuePriority:
+        def __init__(self, base_key, queue_priority):
+             self.base_key = base_key
+             self.queue_priority = queue_priority
+
+        @property
+        def queuePriority(self):
+             return f"{self.base_key}:relia:scheduler:tasks:{self.queue_priority}"
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY')
     REDIS_URL = os.environ.get('REDIS_URL') or "redis://localhost/0"
