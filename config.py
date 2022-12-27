@@ -4,27 +4,24 @@ class Keys:
     def __init__(self, base_key):
         self.base_key = base_key
    
-    @property
     def tasks(self):
         return f"{self.base_key}:relia:scheduler:tasks"
 
-    class Task:
-        def __init__(self, base_key, task_identifier):
-             self.base_key = base_key
-             self.task_identifier = task_identifier
+class Task:
+    def __init__(self, base_key, task_identifier):
+        self.base_key = base_key
+        self.task_identifier = task_identifier
 
-        @property
-        def identifiers(self):
-             return f"{self.base_key}:relia:scheduler:tasks:{self.task_identifier}"
+    def identifiers(self):
+        return f"{self.base_key}:relia:scheduler:tasks:{self.task_identifier}"
 
-    class queuePriority:
-        def __init__(self, base_key, queue_priority):
-             self.base_key = base_key
-             self.queue_priority = queue_priority
+class Device:
+    def __init__(self, base_key, device_id):
+        self.base_key = base_key
+        self.device_id = device_id
 
-        @property
-        def queuePriority(self):
-             return f"{self.base_key}:relia:scheduler:tasks:{self.queue_priority}"
+    def devices(self):
+        return f"{self.base_key}:relia:scheduler:devices:{self.device_id}"
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY')

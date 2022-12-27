@@ -14,6 +14,8 @@ from reliascheduler import weblab
 
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
+BASE_KEY = 'uw-depl1'
+
 @weblab.initial_url
 def initial_url():
     return current_app['CDN_URL']
@@ -23,12 +25,22 @@ def load_task():
     current_user = get_current_user()
     if current_user['anonymous']:
     	return _corsify_actual_response(jsonify(success=False))
+    
+    # Load into Redis
+    # NOTE: UUID cannot be used, as the ID generator must be strictly lexicographically increasing to satisfy sorted set requirements in Redis.
     r = redis.Redis()
-    k = Keys('uw-depl1')
-    t = Keys.Task(k, id)
-    q = Keys.queuePriority(k, '1')
-    id = uuid.uuid1()
 
+    id = 0
+    if r.get(BASE_KEY + ":relia:scheduler:id"):
+        id = int.from_bytes(r.get(BASE_KEY + ":relia:scheduler:id"), "big") + 1
+        r.set(BASE_KEY + ":relia:scheduler:id", id)
+    else:
+        r.set(BASE_KEY + ":relia:scheduler:id", 0)
+
+    k = Keys(BASE_KEY)
+    t = Task(BASE_KEY, id)
+
+    # Access file name and contents for transmitter and receiver
     transmitterURL = request.files['transmitterName']
     receiverURL = request.files['receiverName']
     strip_character = '/'
@@ -42,15 +54,17 @@ def load_task():
     receiverName = os.path.basename(receiverURL)
 
     p = r.pipeline()
-    p.sadd(k.tasks, str(id))
-    p.hset(t.identifiers, 'transmitterFilename', transmitterName)
-    p.hset(t.identifiers, 'receiverFilename', receiverName)
-    p.hset(t.identifiers, 'transmitterFile', transmitterContents)
-    p.hset(t.identifiers, 'receiverFile', receiverContents)
-    p.hset(t.identifiers, 'author', current_user['username_unique'])
-    p.hset(t.identifiers, 'startedTime', datetime.now().strftime("%H:%M:%S"))
-    p.hset(t.identifiers, 'deviceAssigned', "null")
-    p.lpush(q.queuePriority, str(id))
+    p.hset(t.identifiers(), 'id', str(id))
+    p.hset(t.identifiers(), 'transmitterFilename', transmitterName)
+    p.hset(t.identifiers(), 'receiverFilename', receiverName)
+    p.hset(t.identifiers(), 'transmitterFile', transmitterContents)
+    p.hset(t.identifiers(), 'receiverFile', receiverContents)
+    p.hset(t.identifiers(), 'author', current_user['username_unique'])
+    p.hset(t.identifiers(), 'startedTime', datetime.now().strftime("%H:%M:%S"))
+    p.hset(t.identifiers(), 'transmitterAssigned', "null")
+    p.hset(t.identifiers(), 'receiverAssigned', "null")
+    p.hset(t.identifiers(), 'status', "queued")
+    p.execute_command('ZADD', k.tasks(), 'NX', 2, t.identifiers())
     result = p.execute()
      
     return _corsify_actual_response(jsonify(success=True))
