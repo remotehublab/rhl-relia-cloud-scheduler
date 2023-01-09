@@ -1,2 +1,4 @@
 export FLASK_RUN_PORT=6002
 export FLASK_APP=autoapp
+export FLASK_CONFIG=development
+export FLASK_DEBUG=1
