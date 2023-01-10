@@ -104,4 +104,7 @@ def create_app(config_name: str = 'default'):
         """
         _push_device_credentials_to_redis()
 
+    if not 'device-credentials' in sys.argv:
+        with app.app_context():
+            _push_device_credentials_to_redis()
     return app
