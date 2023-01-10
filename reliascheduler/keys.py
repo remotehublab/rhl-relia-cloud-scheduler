@@ -2,8 +2,17 @@ from flask import current_app
 
 class TaskKeys:
 
-    # TODO: @brian: add the rest
+    uniqueIdentifier = "uniqueIdentifier"
     transmitterFile = "transmitterFile"
+    receiverFile = "receiverFile"
+    transmitterFilename = "transmitterFilename"
+    receiverFilename = "receiverFilename"
+    sessionId = "sessionId"
+    startedTime = "startedTime"
+    priority = "priority"
+    transmitterAssigned = "transmitterAssigned"
+    receiverAssigned = "receiverAssigned"
+    status = "status"
 
     @staticmethod
     def tasks() -> str:
