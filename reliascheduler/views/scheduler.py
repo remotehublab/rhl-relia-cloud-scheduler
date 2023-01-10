@@ -179,6 +179,7 @@ def assign_task_primary():
     if device is None:
         return jsonify(success=False, message="Invalid device credentials"), 401
 
+    device_base = device.split(':')[0]
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
     except:
@@ -197,17 +198,9 @@ def assign_task_primary():
         # Check the active priority queues, one by one, in priority, and if we
         # find a task, then assign it
         for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
-            count = -1
-            while count >= -1 * redis_store.llen(TaskKeys.priority_queue(priority)):
-                task_identifier = redis_store.lindex(TaskKeys.priority_queue(priority), count)
-                if task_identifier is not None:
-                    if redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned) == "null":
-                        break
-                    else:
-                        task_identifier = None
-                        count -= 1
-                else:
-                    redis_store.rpop(TaskKeys.priority_queue(priority))
+            task_identifier = redis_store.rpop(TaskKeys.priority_queue(priority))
+            if task_identifier is not None:
+                break
 
         if task_identifier is None:
             time.sleep(0.1)
@@ -223,6 +216,7 @@ def assign_task_primary():
     pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.sessionId)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned, device)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "assigned")
+    pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
     
     return jsonify(success=True, grcReceiverFile=results[0], grcReceiverFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier)
@@ -232,6 +226,8 @@ def assign_task_secondary():
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, message="Invalid device credentials"), 401
+
+    device_base = device.split(':')[0]
 
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
@@ -249,21 +245,7 @@ def assign_task_secondary():
     # a task or 25 seconds have elapsed
     while task_identifier is None and time.time() <= maximum_time:
 
-        # Check the active priority queues, one by one, in priority, and if we
-        # find a task, then assign it
-        for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
-            count = -1
-            while count >= -1 * redis_store.llen(TaskKeys.priority_queue(priority)):
-                task_identifier = redis_store.lindex(TaskKeys.priority_queue(priority), count)
-                if task_identifier is not None:
-                    if redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned) != "null" and redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned) == "null":
-                        redis_store.rpop(TaskKeys.priority_queue(priority))
-                        break
-                    else:
-                        task_identifier = None
-                        count -= 1
-                else:
-                    redis_store.rpop(TaskKeys.priority_queue(priority))
+        task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
 
         if task_identifier is None:
             time.sleep(0.1)
@@ -271,16 +253,15 @@ def assign_task_secondary():
     if task_identifier is None:
         return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None)
 
-    # at this point, there is a task, which was the next task taking into account
-    # priority and FIFO.
+    # Store in Redis that the transmitter has been assigned and return the task information to the user
     pipeline = redis_store.pipeline()
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverFilename)
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverFile)
+    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFilename)
+    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFile)
     pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.sessionId)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned, device)
     results = pipeline.execute()
     
-    return jsonify(success=True, grcReceiverFile=results[0], grcReceiverFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier)
+    return jsonify(success=True, grcTransmitterFile=results[0], grcTransmitterFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier)
 
 def _corsify_actual_response(response):
     response.headers['Access-Control-Allow-Origin'] = '*';

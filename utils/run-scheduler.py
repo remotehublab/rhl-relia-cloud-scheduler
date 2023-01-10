@@ -46,7 +46,13 @@ print("As a device, get all the primary tasks, one by one:")
 
 while True:
     print("Requesting one receiver data (it might take some time)...")
-    device_data = requests.get("http://localhost:6002/scheduler/devices/tasks/receiver?max_seconds=5", headers={'relia-device': 'uw-s1i1r', 'relia-password': 'password'}).json()
+    device_data = requests.get("http://localhost:6002/scheduler/devices/tasks/receiver?max_seconds=5", headers={'relia-device': 'uw-s1i1:r', 'relia-password': 'password'}).json()
+    print(json.dumps(device_data, indent=4))
+    if not device_data.get('success') or not device_data.get('taskIdentifier'):
+        break
+
+    print("Requesting as transmitter")
+    device_data = requests.get("http://localhost:6002/scheduler/devices/tasks/transmitter?max_seconds=5", headers={'relia-device': 'uw-s1i1:t', 'relia-password': 'password'}).json()
     print(json.dumps(device_data, indent=4))
     if not device_data.get('success') or not device_data.get('taskIdentifier'):
         break

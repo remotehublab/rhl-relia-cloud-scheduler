@@ -43,7 +43,14 @@ class DeviceKeys:
         return f"{self.base_key}:relia:scheduler:devices:{self.device_id}"
 
     @staticmethod
+    def device_assignment(device_id):
+        return f'{DeviceKeys.base_key()}:relia:scheduler:devices:{device_id}:assigned_task'
+
+    @staticmethod
     def credentials():
-        base_key = current_app.config.get('BASE_KEY') or 'base'
-        return f"{base_key}:relia:scheduler:device-credentials"
+        return f"{DeviceKeys.base_key()}:relia:scheduler:device-credentials"
+
+    @staticmethod
+    def base_key():
+        return current_app.config.get('BASE_KEY') or 'base'
 
