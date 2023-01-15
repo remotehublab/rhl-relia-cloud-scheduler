@@ -50,10 +50,36 @@ while True:
     print(json.dumps(device_data, indent=4))
     if not device_data.get('success') or not device_data.get('taskIdentifier'):
         break
+    elif device_data.get('taskIdentifier'):
+        taskID1 = device_data.get('taskIdentifier')
+        print(taskID1)
+    else:
+        print("TaskID1 not set")
 
     print("Requesting as transmitter")
     device_data = requests.get("http://localhost:6002/scheduler/devices/tasks/transmitter?max_seconds=5", headers={'relia-device': 'uw-s1i1:t', 'relia-password': 'password'}).json()
     print(json.dumps(device_data, indent=4))
     if not device_data.get('success') or not device_data.get('taskIdentifier'):
         break
+    elif device_data.get('taskIdentifier'):
+        taskID2 = device_data.get('taskIdentifier')
+        print(taskID2)
+    else:
+        print("TaskID2 not set")
+
+    print("Transmitter completing task")
+    device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/transmitter/" + taskID2, headers={'relia-device': 'uw-s1i1:t', 'relia-password': 'password'}).json()
+    if not device_data.get('success'):
+        print("Transmitter completion failed")
+        break
+    else:
+        print("Transmitter completion successful")
+
+    print("Receiver completing task")
+    device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/receiver/" + taskID1, headers={'relia-device': 'uw-s1i1:r', 'relia-password': 'password'}).json()
+    if not device_data.get('success'):
+        print("Transmitter completion failed")
+        break
+    else:
+        print("Transmitter completion successful")
 

@@ -24,19 +24,15 @@ scheduler_blueprint = Blueprint('scheduler', __name__)
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
 def get_one_task(task_identifier):
-    #authenticated = check_backend_credentials()
-    #if not authenticated:
-    #    return jsonify(success=False, message="Invalid secret"), 401
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, message="Invalid secret"), 401
 
     t = TaskKeys.identifier(task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned))
 
 @scheduler_blueprint.route('/user/all-tasks', methods=['GET'])
 def get_all_tasks():
-    #authenticated = check_backend_credentials()
-    #if not authenticated:
-    #    return jsonify(success=False, message="Invalid secret"), 401
-
     task_id = []
     task_status = []
     task_receiver = []
@@ -51,9 +47,9 @@ def get_all_tasks():
 @scheduler_blueprint.route('/user/tasks', methods=['POST'])
 def load_task():
 
-    #authenticated = check_backend_credentials()
-    #if not authenticated:
-    #    return jsonify(success=False, message="Invalid secret"), 401
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, message="Invalid secret"), 401
 
     request_data = request.get_json(silent=True, force=True)
     # It should be something like:
@@ -145,33 +141,38 @@ def load_task():
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['POST'])
 def delete_task(task_identifier):
-    #authenticated = check_backend_credentials()
-    #if not authenticated:
-    #    return jsonify(success=False, message="Invalid secret"), 401
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, message="Invalid secret"), 401
 
     request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
         priority = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.priority)
         redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)
+        t = TaskKeys.identifier(task_identifier)
+        if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
+            redis_store.set(DeviceKeys.device_assignment(redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]), "null")       
         redis_store.srem(TaskKeys.tasks(), task_identifier)
   
     return jsonify(success=True)
 
-@scheduler_blueprint.route('/devices/tasks/complete', methods=['POST'])
-def complete_device_task():
+@scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
+def complete_device_task(type, task_identifier):
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, message="Invalid device credentials"), 401
+    device_base = device.split(':')[0]
 
-    for t in redis_store.srange(TaskKeys.tasks(), 0, -1):
-        if redis_store.hget(t, TaskKeys.transmitterAssigned) == device or redis_store.hget(t, TaskKeys.receiverAssigned) == device:
-            if redis_store.hget(t, TaskKeys.status) == "assigned":
-                 redis_store.hset(t, TaskKeys.status, "processing")
-                 break
-            elif redis_store.hget(t, TaskKeys.status) == "processing":
-                 redis_store.hset(t, TaskKeys.status, "completed")
-                 break
-    return jsonify(success=True)
+    t = TaskKeys.identifier(task_identifier)
+    status_msg = "Error"
+    if redis_store.hget(t, TaskKeys.status) == "assigned":
+        redis_store.hset(t, TaskKeys.status, "processing")
+        status_msg = "processing"
+    elif redis_store.hget(t, TaskKeys.status) == "processing":
+        redis_store.hset(t, TaskKeys.status, "completed")
+        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+        status_msg = "completed"
+    return jsonify(success=True, status=status_msg)
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def assign_task_primary():
