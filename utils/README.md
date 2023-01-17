@@ -35,7 +35,7 @@ D   -> Delete most recent task added
 
 ===========================================================
 
-python run-scheduler ARGS -> BEHAVIOR
+python run-scheduler.py ARGS -> BEHAVIOR
 | NO. | ARGS | BEHAVIOR |
 | ------ | ------ | ------ |
 | 1 | A2 A2 R1A T1A T1C T1A R1C | "No tasks in queue" on second T1A -> waiting on R1C |
@@ -44,5 +44,5 @@ python run-scheduler ARGS -> BEHAVIOR
 | 4 | A2 A2 R1A T1A T1A T1C R1C | "Device in use" on second T1A |
 | 5 | A2 A2 R1A T1A R1C R1A T1C | Operates successfully |
 | 6 | A2 A2 R1A T1A R1C R1A R1C T1C | Operates successfully |
-| 7 | A2 R1A T1A D T1C R1C | Second T1C does nothing (says "Error" correctly) |
+| 7 | A2 R1A T1A D T1C R1C | T1C does nothing (says "Error" correctly) |
 | 8 | A2 R1A D T1A R1C T1C | "No tasks in queue" on T1A -> only task deleted, R1C does nothing (says "Error" correctly) |

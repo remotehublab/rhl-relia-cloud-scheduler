@@ -11,7 +11,7 @@ receiver_2_assign = ""
 transmitter_1_assign = ""
 transmitter_2_assign = ""
 
-for i in range(len(sys.argv) - 1):
+for i in range(1, len(sys.argv)):
     match sys.argv[i]:
         case "A2":
             print("Sending a task with priority 2")
