@@ -29,7 +29,7 @@ def get_one_task(task_identifier):
         return jsonify(success=False, message="Invalid secret"), 401
 
     t = TaskKeys.identifier(task_identifier)
-    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned))
+    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
 
 @scheduler_blueprint.route('/user/all-tasks', methods=['GET'])
 def get_all_tasks():
@@ -42,7 +42,7 @@ def get_all_tasks():
         task_status.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.status))
         task_receiver.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.receiverAssigned))
         task_transmitter.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.transmitterAssigned))
-    return jsonify(success=True, ids=task_id, statuses=task_status, receivers=task_receiver, transmitters=task_transmitter)
+    return jsonify(success=True, ids=task_id, statuses=task_status, receivers=task_receiver, transmitters=task_transmitter, method="Success")
 
 @scheduler_blueprint.route('/user/tasks', methods=['POST'])
 def load_task():
@@ -136,7 +136,7 @@ def load_task():
 
     result = pipeline.execute()
      
-    return jsonify(success=True, taskIdentifier=task_identifier, status='queued')
+    return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['POST'])
@@ -147,14 +147,29 @@ def delete_task(task_identifier):
 
     request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
-        priority = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.priority)
-        redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)
         t = TaskKeys.identifier(task_identifier)
+        priority = redis_store.hget(t, TaskKeys.priority)
+        if priority == None:
+            return jsonify(success=False, message="Invalid task identifier")
+        if redis_store.hget(t, TaskKeys.transmitterAssigned) != "null":
+            device_base = redis_store.hget(t, TaskKeys.transmitterAssigned).split(':')[0]
+            if redis_store.hget(t, TaskKeys.status) == "fully assigned":
+                redis_store.hset(t, TaskKeys.status, "receiver still processing")
+            elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
+                redis_store.hset(t, TaskKeys.status, "completed")
+                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
         if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
-            redis_store.set(DeviceKeys.device_assignment(redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]), "null")       
+            device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
+            if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
+                redis_store.hset(t, TaskKeys.status, "transmitter still processing")
+                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            elif redis_store.hget(t, TaskKeys.status) == "receiver still processing":
+                redis_store.hset(t, TaskKeys.status, "completed")
+                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+        redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
         redis_store.srem(TaskKeys.tasks(), task_identifier)
   
-    return jsonify(success=True)
+    return jsonify(success=True, message="Successfully deleted")
 
 @scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
 def complete_device_task(type, task_identifier):
@@ -165,14 +180,24 @@ def complete_device_task(type, task_identifier):
 
     t = TaskKeys.identifier(task_identifier)
     status_msg = "Error"
-    if redis_store.hget(t, TaskKeys.status) == "assigned":
-        redis_store.hset(t, TaskKeys.status, "processing")
-        status_msg = "processing"
-    elif redis_store.hget(t, TaskKeys.status) == "processing":
-        redis_store.hset(t, TaskKeys.status, "completed")
-        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
-        status_msg = "completed"
-    return jsonify(success=True, status=status_msg)
+    if type == "receiver":
+        if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
+            redis_store.hset(t, TaskKeys.status, "transmitter still processing")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            status_msg = "transmitter still processing"
+        elif redis_store.hget(t, TaskKeys.status) == "receiver still processing":
+            redis_store.hset(t, TaskKeys.status, "completed")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            status_msg = "completed"
+    if type == "transmitter":
+        if redis_store.hget(t, TaskKeys.status) == "fully assigned":
+            redis_store.hset(t, TaskKeys.status, "receiver still processing")
+            status_msg = "receiver still processing"
+        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
+            redis_store.hset(t, TaskKeys.status, "completed")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            status_msg = "completed"
+    return jsonify(success=True, status=status_msg, message="Completed")
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def assign_task_primary():
@@ -181,6 +206,8 @@ def assign_task_primary():
         return jsonify(success=False, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
+    if redis_store.get(DeviceKeys.device_assignment(device_base)) and redis_store.get(DeviceKeys.device_assignment(device_base)) != "null":
+        return jsonify(success=True, message="Device in use")
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
     except:
@@ -207,20 +234,21 @@ def assign_task_primary():
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None)
+        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
 
     # at this point, there is a task, which was the next task taking into account
     # priority and FIFO.
     pipeline = redis_store.pipeline()
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverFilename)
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverFile)
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.sessionId)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned, device)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "assigned")
+    t = TaskKeys.identifier(task_identifier)
+    pipeline.hget(t, TaskKeys.receiverFilename)
+    pipeline.hget(t, TaskKeys.receiverFile)
+    pipeline.hget(t, TaskKeys.sessionId)
+    pipeline.hset(t, TaskKeys.receiverAssigned, device)
+    pipeline.hset(t, TaskKeys.status, "receiver assigned")
     pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
     
-    return jsonify(success=True, grcReceiverFile=results[0], grcReceiverFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier)
+    return jsonify(success=True, grcReceiverFile=results[0], grcReceiverFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
 def assign_task_secondary():
@@ -229,7 +257,6 @@ def assign_task_secondary():
         return jsonify(success=False, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
-
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
     except:
@@ -247,22 +274,29 @@ def assign_task_secondary():
     while task_identifier is None and time.time() <= maximum_time:
 
         task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
+        t = TaskKeys.identifier(task_identifier)
+        if redis_store.hget(t, TaskKeys.status) == "transmitter still processing" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
+            return jsonify(success=False, message="Device in use")
+        if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
+            task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None)
+        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
 
     # Store in Redis that the transmitter has been assigned and return the task information to the user
     pipeline = redis_store.pipeline()
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFilename)
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFile)
-    pipeline.hget(TaskKeys.identifier(task_identifier), TaskKeys.sessionId)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned, device)
+    t = TaskKeys.identifier(task_identifier)
+    pipeline.hget(t, TaskKeys.transmitterFilename)
+    pipeline.hget(t, TaskKeys.transmitterFile)
+    pipeline.hget(t, TaskKeys.sessionId)
+    pipeline.hset(t, TaskKeys.transmitterAssigned, device)
+    pipeline.hset(t, TaskKeys.status, "fully assigned")
     results = pipeline.execute()
     
-    return jsonify(success=True, grcTransmitterFile=results[0], grcTransmitterFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier)
+    return jsonify(success=True, grcTransmitterFile=results[0], grcTransmitterFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, message="Successfully assigned")
 
 def _corsify_actual_response(response):
     response.headers['Access-Control-Allow-Origin'] = '*';
