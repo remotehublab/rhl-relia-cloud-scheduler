@@ -55,8 +55,12 @@ def create_app(config_name: str = 'default'):
             existing_credentials = json.load(open(credentials_filename))
 
         while True:
-            device_identifier = input("Device identifier (e.g., uw-s1i1r): ").strip()
+            device_identifier = input("Device identifier (e.g., uw-s1i1): ").strip()
             password = getpass.getpass("Password: ").strip()
+            confirm_password = getpass.getpass("Confirm password: ").strip()
+            if password != confirm_password:
+                print("Passwords do not match. Try again")
+                continue
             if len(device_identifier) >= 3 or len(password) >= 8:
                 break
             print(f"Too short device identifier ({len(device_identifier)}, min 3) or password ({len(password)}, min 8). Try again")
@@ -103,6 +107,33 @@ def create_app(config_name: str = 'default'):
         Push the credentials from the file to Redis
         """
         _push_device_credentials_to_redis()
+
+    @device_credentials.command("check")
+    def check_device_credentials():
+        """
+        Check credentials for a device
+        """
+        credentials_filename = app.config['DEVICE_CREDENTIALS_FILENAME']
+        if not os.path.exists(credentials_filename):
+            print("Error: credentials file not found")
+            return -1
+        existing_credentials = json.load(open(credentials_filename))
+
+        while True:
+            device_identifier = (input("Device identifier: ") or '').split(':')[0]
+            if device_identifier not in existing_credentials:
+                print("Device identifier not found")
+            else:
+                break
+
+        salt, password_hash = existing_credentials.get(device_identifier).split('$')
+
+        while True:
+            password = getpass.getpass("Device password: ")
+            if hashlib.sha512(salt.encode() + password.encode()).hexdigest() == password_hash:
+                print("The password is correct")
+                break
+            print("Invalid password")
 
     if not 'device-credentials' in sys.argv:
         with app.app_context():
