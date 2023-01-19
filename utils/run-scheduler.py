@@ -102,18 +102,30 @@ for i in range(1, len(sys.argv)):
                 transmitter_2_assign = device_data.get('taskIdentifier')
             print(device_data.get('message'))
         case "R1C":
-            print("Receiver 1 completing task")
-            device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/receiver/" + receiver_1_assign, headers={'relia-device': 'uw-s1i1:r', 'relia-password': 'password'}).json()
-            print(device_data.get('status'))
+            if receiver_1_assign:
+                print("Receiver 1 completing task")
+                device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/receiver/" + receiver_1_assign, headers={'relia-device': 'uw-s1i1:r', 'relia-password': 'password'}).json()
+                print(device_data.get('status'))
+            else:
+                print("Previous assignment failed; do nothing")
         case "R2C":
-            print("Receiver 2 completing task")
-            device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/receiver/" + receiver_2_assign, headers={'relia-device': 'uw-s1i2:r', 'relia-password': 'password'}).json()
-            print(device_data.get('status'))
+            if receiver_2_assign:
+                print("Receiver 2 completing task")
+                device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/receiver/" + receiver_2_assign, headers={'relia-device': 'uw-s1i2:r', 'relia-password': 'password'}).json()
+                print(device_data.get('status'))
+            else:
+                print("Previous assignment failed; do nothing")
         case "T1C":
-            print("Transmitter 1 completing task")
-            device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/transmitter/" + transmitter_1_assign, headers={'relia-device': 'uw-s1i1:t', 'relia-password': 'password'}).json()
-            print(device_data.get('status'))
+            if transmitter_1_assign:
+                print("Transmitter 1 completing task")
+                device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/transmitter/" + transmitter_1_assign, headers={'relia-device': 'uw-s1i1:t', 'relia-password': 'password'}).json()
+                print(device_data.get('status'))
+            else:
+                print("Previous assignment failed; do nothing")
         case "T2C":
-            print("Transmitter 2 completing task")
-            device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/transmitter/" + transmitter_2_assign, headers={'relia-device': 'uw-s1i2:t', 'relia-password': 'password'}).json()
-            print(device_data.get('status'))
+            if transmitter_2_assign:
+                print("Transmitter 2 completing task")
+                device_data = requests.post("http://localhost:6002/scheduler/devices/tasks/transmitter/" + transmitter_2_assign, headers={'relia-device': 'uw-s1i2:t', 'relia-password': 'password'}).json()
+                print(device_data.get('status'))
+            else:
+                print("Previous assignment failed; do nothing")

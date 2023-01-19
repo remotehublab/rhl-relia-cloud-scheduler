@@ -181,7 +181,11 @@ def complete_device_task(type, task_identifier):
     t = TaskKeys.identifier(task_identifier)
     status_msg = "Error"
     if type == "receiver":
-        if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
+        if redis_store.hget(t, TaskKeys.status) == "receiver assigned":
+            redis_store.hset(t, TaskKeys.status, "waiting on transmitter")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            status_msg = "transmitter still processing"
+        elif redis_store.hget(t, TaskKeys.status) == "fully assigned":
             redis_store.hset(t, TaskKeys.status, "transmitter still processing")
             redis_store.set(DeviceKeys.device_assignment(device_base), "null")
             status_msg = "transmitter still processing"
@@ -193,9 +197,8 @@ def complete_device_task(type, task_identifier):
         if redis_store.hget(t, TaskKeys.status) == "fully assigned":
             redis_store.hset(t, TaskKeys.status, "receiver still processing")
             status_msg = "receiver still processing"
-        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
+        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing" or redis_store.hget(t, TaskKeys.status) == "waiting on transmitter":
             redis_store.hset(t, TaskKeys.status, "completed")
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
             status_msg = "completed"
     return jsonify(success=True, status=status_msg, message="Completed")
 
@@ -277,14 +280,14 @@ def assign_task_secondary():
         t = TaskKeys.identifier(task_identifier)
         if redis_store.hget(t, TaskKeys.status) == "transmitter still processing" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
             return jsonify(success=False, message="Device in use")
-        if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
+        if redis_store.hget(t, TaskKeys.status) != "receiver assigned" and redis_store.hget(t, TaskKeys.status) != "waiting on transmitter":
             task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
+        return jsonify(success=True, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")  
 
     # Store in Redis that the transmitter has been assigned and return the task information to the user
     pipeline = redis_store.pipeline()
