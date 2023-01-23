@@ -44,5 +44,7 @@ python run-scheduler.py ARGS -> BEHAVIOR
 | 4 | A2 A2 R1A T1A T1A T1C R1C | "Device in use" on second T1A |
 | 5 | A2 A2 R1A T1A R1C R1A T1C | Operates successfully |
 | 6 | A2 A2 R1A T1A R1C R1A R1C T1C | Operates successfully |
-| 7 | A2 R1A T1A D T1C R1C | T1C does nothing (says "Error" correctly) |
-| 8 | A2 R1A D T1A R1C T1C | "No tasks in queue" on T1A -> only task deleted, R1C does nothing (says "Error" correctly) |
+| 7 | A2 R1A T1A D T1C R1C | T1C and R1C do nothing (says "Error" correctly) |
+| 8 | A2 R1A D T1A R1C T1C | "No tasks in queue" on T1A -> only task deleted, R1C does nothing (says "Error" correctly), "Previous assignment failed; do nothing" |
+| 9 | A2 T1A R1A T1A T1C R1C | "No tasks in queue" on first T1A |
+| 10 | A2 A2 A2 A2 R1A R2A T1A R1C T2A R2C R1A T2C T1C R2A T1A T2A T1C T2C R1C R2C | Operates successfully |
