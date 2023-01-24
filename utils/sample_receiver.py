@@ -26,7 +26,9 @@ device_id = "uw-s1i1:r"
 password = "password"
 
 # Base URL
-base_url = None
+data_uploader_base_url = os.environ.get('DATA_UPLOADER_BASE_URL') or 'http://localhost:6003/'
+
+scheduler_base_url = os.environ.get('SCHEDULER_BASE_URL') or 'http://localhost:6002/'
 
 # Host
 host = "localhost"
@@ -34,7 +36,7 @@ host = "localhost"
 def main():
     while(True):
          print("Receiver requesting assignment (it might take some time)...")
-         device_data = requests.get("http://" + host + ":6002/scheduler/devices/tasks/receiver?max_seconds=5", headers={'relia-device': device_id, 'relia-password': password}).json()
+         device_data = requests.get("http://" + host + ":6002/scheduler/devices/tasks/receiver?max_seconds=5", headers={'relia-device': device_id, 'relia-password': password}, timeout=(30,30)).json()
          if device_data.get('taskIdentifier'):
               grc_content = yaml.load(device_data.get('grcReceiverFileContent'), Loader=Loader)
               target_filename = 'target_file'
