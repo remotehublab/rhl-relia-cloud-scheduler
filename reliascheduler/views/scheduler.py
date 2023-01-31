@@ -24,10 +24,6 @@ scheduler_blueprint = Blueprint('scheduler', __name__)
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
 def get_one_task(task_identifier):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, message="Invalid secret"), 401
-
     t = TaskKeys.identifier(task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
 
@@ -153,19 +149,12 @@ def delete_task(task_identifier):
             return jsonify(success=False, message="Invalid task identifier")
         if redis_store.hget(t, TaskKeys.transmitterAssigned) != "null":
             device_base = redis_store.hget(t, TaskKeys.transmitterAssigned).split(':')[0]
-            if redis_store.hget(t, TaskKeys.status) == "fully assigned":
-                redis_store.hset(t, TaskKeys.status, "receiver still processing")
-            elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
-                redis_store.hset(t, TaskKeys.status, "completed")
-                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            redis_store.hset(t, TaskKeys.status, "deleted")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
         if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
             device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
-            if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
-                redis_store.hset(t, TaskKeys.status, "transmitter still processing")
-                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
-            elif redis_store.hget(t, TaskKeys.status) == "receiver still processing":
-                redis_store.hset(t, TaskKeys.status, "completed")
-                redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+            redis_store.hset(t, TaskKeys.status, "deleted")
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
         redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
         redis_store.srem(TaskKeys.tasks(), task_identifier)
   
