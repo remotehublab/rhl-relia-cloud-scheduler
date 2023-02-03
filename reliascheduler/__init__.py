@@ -39,6 +39,29 @@ def create_app(config_name: str = 'default'):
     app.register_blueprint(main_blueprint)
     app.register_blueprint(scheduler_blueprint, url_prefix='/scheduler')
 
+    @app.cli.group('tasks')
+    def task_group():
+        "Manage tasks"
+
+    @task_group.command('clean')
+    def tasks_clean():
+        "Remove all tasks"
+        from reliascheduler.keys import TaskKeys, DeviceKeys
+
+        redis_store.delete(TaskKeys.tasks())
+
+        for key in redis_store.keys(TaskKeys.identifier("*")):
+            redis_store.delete(key)
+
+        for key in redis_store.keys(TaskKeys.priority_queue("*")):
+            redis_store.delete(key)
+
+        redis_store.delete(TaskKeys.priorities())
+
+        for key in redis_store.keys(DeviceKeys.device_assignment("*")):
+            redis_store.delete(key)
+
+
     @app.cli.group()
     def device_credentials():
         "Manage device credentials"
