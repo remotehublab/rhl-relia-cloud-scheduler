@@ -172,16 +172,14 @@ def complete_device_task(type, task_identifier):
     if type == "receiver":
         if redis_store.hget(t, TaskKeys.status) == "receiver assigned":
             redis_store.hset(t, TaskKeys.status, "waiting on transmitter")
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
             status_msg = "transmitter still processing"
         elif redis_store.hget(t, TaskKeys.status) == "fully assigned":
             redis_store.hset(t, TaskKeys.status, "transmitter still processing")
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
             status_msg = "transmitter still processing"
         elif redis_store.hget(t, TaskKeys.status) == "receiver still processing":
             redis_store.hset(t, TaskKeys.status, "completed")
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
             status_msg = "completed"
+        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
     if type == "transmitter":
         if redis_store.hget(t, TaskKeys.status) == "fully assigned":
             redis_store.hset(t, TaskKeys.status, "receiver still processing")
