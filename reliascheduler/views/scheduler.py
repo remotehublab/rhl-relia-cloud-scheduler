@@ -3,13 +3,14 @@ import glob
 import time
 import secrets
 import logging
-import datetime
+from datetime import datetime
 
 from typing import Optional
 
 from urllib.request import urlopen
 
 import yaml
+import numpy as np
 
 from werkzeug.utils import secure_filename
 from flask import Blueprint, jsonify, current_app, request, make_response, send_file
@@ -27,21 +28,48 @@ def get_one_task(task_identifier):
     t = TaskKeys.identifier(task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
 
-@scheduler_blueprint.route('/user/all-tasks', methods=['GET'])
-def get_all_tasks():
+@scheduler_blueprint.route('/user/all-tasks/<user_id>', methods=['GET'])
+def get_all_tasks(user_id):
     task_id = []
     task_status = []
     task_receiver = []
     task_transmitter = []
     for t in redis_store.smembers(TaskKeys.tasks()):
-        task_id.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.uniqueIdentifier))
-        task_status.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.status))
-        task_receiver.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.receiverAssigned))
-        task_transmitter.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.transmitterAssigned))
+        if redis_store.hget(TaskKeys.identifier(t), TaskKeys.author) == user_id:
+            task_id.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.uniqueIdentifier))
+            task_status.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.status))
+            task_receiver.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.receiverAssigned))
+            task_transmitter.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.transmitterAssigned))
     return jsonify(success=True, ids=task_id, statuses=task_status, receivers=task_receiver, transmitters=task_transmitter, method="Success")
 
-@scheduler_blueprint.route('/user/tasks', methods=['POST'])
-def load_task():
+@scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
+def get_errors(user_id):
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, message="Invalid secret"), 401
+
+    task_id = []
+    error_messages = []
+    error_times = []
+    for t in redis_store.smembers(TaskKeys.tasks()):
+        if redis_store.hget(TaskKeys.identifier(t), TaskKeys.author) == user_id and redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorMessage) != "null":
+            task_id.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.uniqueIdentifier))
+            error_messages.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorMessage))
+            error_times.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorTime))
+
+    sorted_times = np.argsort([datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%f') for x in error_times])
+    most_recent = sorted(range(len(sorted_times)), key=lambda i: sorted_times[i])[-5:]
+
+    new_task_id = []
+    new_error_messages = []
+    for i in most_recent:
+            new_task_id.append(task_id[i])
+            new_error_messages.append(error_messages[i])
+
+    return jsonify(success=True, ids=new_task_id, errors=new_error_messages)
+
+@scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
+def load_task(user_id):
 
     authenticated = check_backend_credentials()
     if not authenticated:
@@ -115,16 +143,19 @@ def load_task():
 
     pipeline = redis_store.pipeline()
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.uniqueIdentifier, task_identifier)
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.author, user_id)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFilename, transmitter_filename)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFile, transmitter_file)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverFilename, receiver_filename)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverFile, receiver_file)
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.sessionId, session_id)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.startedTime, datetime.datetime.now().isoformat())
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.startedTime, datetime.now().isoformat())
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.priority, str(priority))
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "queued")
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorMessage, "null")
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorTime, "null")
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -287,6 +318,19 @@ def assign_task_secondary():
     results = pipeline.execute()
     
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, message="Successfully assigned")
+
+@scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
+def assign_error_message(task_identifier):
+    device = check_device_credentials()
+    if device is None:
+        return jsonify(success=False, message="Invalid device credentials"), 401
+
+    request_data = request.get_json(silent=True, force=True)
+
+    t = TaskKeys.identifier(task_identifier)
+    redis_store.hset(t, TaskKeys.errorMessage, request_data.get('errorMessage'))
+    redis_store.hset(t, TaskKeys.errorTime, request_data.get('errorTime'))
+    return jsonify(success=True)
 
 def _corsify_actual_response(response):
     response.headers['Access-Control-Allow-Origin'] = '*';

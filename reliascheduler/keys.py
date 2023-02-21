@@ -3,6 +3,7 @@ from flask import current_app
 class TaskKeys:
 
     uniqueIdentifier = "uniqueIdentifier"
+    author = "author"
     transmitterFile = "transmitterFile"
     receiverFile = "receiverFile"
     transmitterFilename = "transmitterFilename"
@@ -13,6 +14,8 @@ class TaskKeys:
     transmitterAssigned = "transmitterAssigned"
     receiverAssigned = "receiverAssigned"
     status = "status"
+    errorMessage = "errorMessage"
+    errorTime = "errorTime"
 
     @staticmethod
     def tasks() -> str:
