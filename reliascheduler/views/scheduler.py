@@ -268,8 +268,10 @@ def assign_task_primary():
     pipeline.hset(t, TaskKeys.status, "receiver assigned")
     pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
+
+    max_time_running = current_app.config['MAX_TIME_RUNNING']
     
-    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, message="Successfully assigned")
+    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
 def assign_task_secondary():
@@ -316,8 +318,10 @@ def assign_task_secondary():
     pipeline.hset(t, TaskKeys.transmitterAssigned, device)
     pipeline.hset(t, TaskKeys.status, "fully assigned")
     results = pipeline.execute()
+
+    max_time_running = current_app.config['MAX_TIME_RUNNING']
     
-    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, message="Successfully assigned")
+    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
 def assign_error_message(task_identifier):
