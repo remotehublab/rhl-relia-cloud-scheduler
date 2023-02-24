@@ -41,7 +41,7 @@ python run-scheduler.py ARGS -> BEHAVIOR
 | 1 | A2 A2 R1A T1A T1C T1A R1C | "No tasks in queue" on second T1A -> waiting on R1C |
 | 2 | A2 A2 R1A R1A T1A T1C R1C | "Device in use" on second R1A |
 | 3 | A2 A2 R1A T1A T1C T1C R1C | Second T1C does nothing (says "Error" correctly) |
-| 4 | A2 A2 R1A T1A T1A T1C R1C | "Device in use" on second T1A |
+| 4 | A2 A2 R1A T1A T1A T1C R1C | "No tasks in queue" on second T1A ("Device in use" for a transmitter) |
 | 5 | A2 A2 R1A T1A R1C R1A T1C | Operates successfully |
 | 6 | A2 A2 R1A T1A R1C R1A R1C T1C | Operates successfully |
 | 7 | A2 R1A T1A D T1C R1C | T1C and R1C do nothing (says "Error" correctly) |
