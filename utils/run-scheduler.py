@@ -15,7 +15,7 @@ for i in range(1, len(sys.argv)):
     match sys.argv[i]:
         case "A2":
             print("Sending a task with priority 2")
-            result1 = requests.post("http://localhost:6002/scheduler/user/tasks", headers={'relia-secret': 'password'}, json={
+            result1 = requests.post("http://localhost:6002/scheduler/user/tasks/abba", headers={'relia-secret': 'password'}, json={
                 "grc_files": {
                     "receiver": {
                         "filename": "receiver.grc",
@@ -34,7 +34,7 @@ for i in range(1, len(sys.argv)):
                 most_recent_task_id = result1['taskIdentifier']
         case "A5":
             print("Sending a task with priority 5")
-            result1 = requests.post("http://localhost:6002/scheduler/user/tasks", headers={'relia-secret': 'password'}, json={
+            result1 = requests.post("http://localhost:6002/scheduler/user/tasks/abba", headers={'relia-secret': 'password'}, json={
                 "grc_files": {
                     "receiver": {
                         "filename": "receiver.grc",
@@ -53,7 +53,7 @@ for i in range(1, len(sys.argv)):
                 most_recent_task_id = result1['taskIdentifier']
         case "A8":
             print("Sending a task with priority 8")
-            result1 = requests.post("http://localhost:6002/scheduler/user/tasks", headers={'relia-secret': 'password'}, json={
+            result1 = requests.post("http://localhost:6002/scheduler/user/tasks/abba", headers={'relia-secret': 'password'}, json={
                 "grc_files": {
                     "receiver": {
                         "filename": "receiver.grc",
@@ -75,7 +75,7 @@ for i in range(1, len(sys.argv)):
             if most_recent_task_id == "":
                 print("No task added")
             else:
-                result1 = requests.post("http://localhost:6002/scheduler/user/tasks/" + most_recent_task_id, headers={'relia-secret': 'password'}, json={'action': 'delete'}).json()
+                result1 = requests.post("http://localhost:6002/scheduler/user/tasks/" + most_recent_task_id + "/abba", headers={'relia-secret': 'password'}, json={'action': 'delete'}).json()
                 print(result1['message'])
         case "R1A":
             print("Receiver 1 requesting assignment (it might take some time)...")

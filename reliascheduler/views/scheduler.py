@@ -17,15 +17,34 @@ from flask import Blueprint, jsonify, current_app, request, make_response, send_
 
 from reliascheduler import redis_store
 from reliascheduler.auth import check_backend_credentials, check_device_credentials
-from reliascheduler.keys import TaskKeys, DeviceKeys
+from reliascheduler.keys import ErrorKeys, TaskKeys, DeviceKeys
 
 logger = logging.getLogger(__name__)
 
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
-@scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
-def get_one_task(task_identifier):
+@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
+def get_one_task(task_identifier, user_id):
     t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(TaskKeys.identifier(t), TaskKeys.author)
+    if author == None:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Failure")
+    if author != user_id and author != "Omnipotent":
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to access the status of the task")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Failure")    
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
 
 @scheduler_blueprint.route('/user/all-tasks/<user_id>', methods=['GET'])
@@ -51,11 +70,17 @@ def get_errors(user_id):
     task_id = []
     error_messages = []
     error_times = []
+
     for t in redis_store.smembers(TaskKeys.tasks()):
         if redis_store.hget(TaskKeys.identifier(t), TaskKeys.author) == user_id and redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorMessage) != "null":
             task_id.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.uniqueIdentifier))
             error_messages.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorMessage))
             error_times.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.errorTime))
+    for v in redis_store.smembers(ErrorKeys.errors()):
+        if redis_store.hget(ErrorKeys.identifier(v), ErrorKeys.author) == user_id and redis_store.hget(ErrorKeys.identifier(v), ErrorKeys.errorMessage) != "null":
+            task_id.append(redis_store.hget(ErrorKeys.identifier(v), ErrorKeys.uniqueIdentifier))
+            error_messages.append(redis_store.hget(ErrorKeys.identifier(v), ErrorKeys.errorMessage))
+            error_times.append(redis_store.hget(ErrorKeys.identifier(v), ErrorKeys.errorTime))       
 
     sorted_times = np.argsort([datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%f') for x in error_times])
     most_recent = sorted(range(len(sorted_times)), key=lambda i: sorted_times[i])[-5:]
@@ -65,7 +90,6 @@ def get_errors(user_id):
     for i in most_recent:
             new_task_id.append(task_id[i])
             new_error_messages.append(error_messages[i])
-
     return jsonify(success=True, ids=new_task_id, errors=new_error_messages)
 
 @scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
@@ -107,23 +131,69 @@ def load_task(user_id):
 
     grc_files = request_data.get('grc_files')
     if not grc_files:
+        task_identifier = secrets.token_urlsafe()
+        while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
+            task_identifier = secrets.token_urlsafe()
+        pipeline = redis_store.pipeline()
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "No grc_files provided")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        result = pipeline.execute()
         return jsonify(success=False, message="No grc_files provided")
 
     for grc_file_type in ('receiver', 'transmitter'):
         grc_file_data = grc_files.get(grc_file_type)
         if not grc_file_data:
+            task_identifier = secrets.token_urlsafe()
+            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
+                task_identifier = secrets.token_urlsafe()
+            pipeline = redis_store.pipeline()
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No {grc_file_type} found in grc_files")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            result = pipeline.execute()
             return jsonify(success=False, message=f"No {grc_file_type} found in grc_files")
 
         filename = grc_file_data.get('filename')
         if not filename:
+            task_identifier = secrets.token_urlsafe()
+            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
+                task_identifier = secrets.token_urlsafe()
+            pipeline = redis_store.pipeline()
+            pipeline.sadd(ErrorKeys.errors(), task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No filename found in {grc_file_type} in grc_files")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            result = pipeline.execute()
             return jsonify(success=False, message=f"No filename found in {grc_file_type} in grc_files")
         content = grc_file_data.get('content')
         if not content:
+            task_identifier = secrets.token_urlsafe()
+            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
+                task_identifier = secrets.token_urlsafe()
+            pipeline = redis_store.pipeline()
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No content found in {grc_file_type} in grc_files")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            result = pipeline.execute()
             return jsonify(success=False, message=f"No content found in {grc_file_type} in grc_files")
 
         try:
             yaml.safe_load(content)
         except Exception as err:
+            task_identifier = secrets.token_urlsafe()
+            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
+                task_identifier = secrets.token_urlsafe()
+            pipeline = redis_store.pipeline()
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"Invalid content (not yaml) for provided {grc_file_type}")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            result = pipeline.execute()
             return jsonify(success=False, message=f"Invalid content (not yaml) for provided {grc_file_type}")
         # in the future we might check more things about the .grc files
 
@@ -153,6 +223,8 @@ def load_task(user_id):
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.priority, str(priority))
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned, "null")
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterProcessingStart, "null")
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "queued")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorMessage, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorTime, "null")
@@ -166,8 +238,8 @@ def load_task(user_id):
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
 
-@scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['POST'])
-def delete_task(task_identifier):
+@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
+def delete_task(task_identifier, user_id):
     authenticated = check_backend_credentials()
     if not authenticated:
         return jsonify(success=False, message="Invalid secret"), 401
@@ -176,15 +248,31 @@ def delete_task(task_identifier):
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
         priority = redis_store.hget(t, TaskKeys.priority)
+        current_app.logger.info(priority)
         if priority == None:
+            pipeline = redis_store.pipeline()
+            pipeline.sadd(ErrorKeys.errors(), task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            results = pipeline.execute()
             return jsonify(success=False, message="Invalid task identifier")
-        if redis_store.hget(t, TaskKeys.transmitterAssigned) != "null":
-            device_base = redis_store.hget(t, TaskKeys.transmitterAssigned).split(':')[0]
-            redis_store.hset(t, TaskKeys.status, "deleted")
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+        if redis_store.hget(t, TaskKeys.author) != user_id:
+            pipeline = redis_store.pipeline()
+            pipeline.sadd(ErrorKeys.errors(), task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to delete the task")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            results = pipeline.execute()
+            return jsonify(success=False, message="Task not authored by user")
+  
+        redis_store.hset(t, TaskKeys.status, "deleted")
+        if redis_store.hget(t, TaskKeys.status) == "queued":
+            task_identifier = redis_store.rpop(TaskKeys.priority_queue(redis_store.hget(t, TaskKeys.priority)))
         if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
             device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
-            redis_store.hset(t, TaskKeys.status, "deleted")
             redis_store.set(DeviceKeys.device_assignment(device_base), "null")
         redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
         redis_store.srem(TaskKeys.tasks(), task_identifier)
@@ -201,21 +289,20 @@ def complete_device_task(type, task_identifier):
     t = TaskKeys.identifier(task_identifier)
     status_msg = "Error"
     if type == "receiver":
-        if redis_store.hget(t, TaskKeys.status) == "receiver assigned":
-            redis_store.hset(t, TaskKeys.status, "waiting on transmitter")
-            status_msg = "transmitter still processing"
-        elif redis_store.hget(t, TaskKeys.status) == "fully assigned":
-            redis_store.hset(t, TaskKeys.status, "transmitter still processing")
-            status_msg = "transmitter still processing"
-        elif redis_store.hget(t, TaskKeys.status) == "receiver still processing":
-            redis_store.hset(t, TaskKeys.status, "completed")
+        if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "receiver still processing":
             status_msg = "completed"
-        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+        elif redis_store.hget(t, TaskKeys.status) == "fully assigned":
+            status_msg = "transmitter still processing"
+        pipeline = redis_store.pipeline()
+        if status_msg != "Error":
+            pipeline.hset(t, TaskKeys.status, status_msg)
+        pipeline.set(DeviceKeys.device_assignment(device_base), "null")
+        results = pipeline.execute()
     if type == "transmitter":
         if redis_store.hget(t, TaskKeys.status) == "fully assigned":
             redis_store.hset(t, TaskKeys.status, "receiver still processing")
             status_msg = "receiver still processing"
-        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing" or redis_store.hget(t, TaskKeys.status) == "waiting on transmitter":
+        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
             redis_store.hset(t, TaskKeys.status, "completed")
             status_msg = "completed"
     return jsonify(success=True, status=status_msg, message="Completed")
@@ -227,8 +314,21 @@ def assign_task_primary():
         return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
-    if redis_store.get(DeviceKeys.device_assignment(device_base)) and redis_store.get(DeviceKeys.device_assignment(device_base)) != "null":
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
+    max_time_running = current_app.config['MAX_TIME_RUNNING']
+    task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
+    if task_identifier and task_identifier != "null":
+        if (datetime.now() - datetime.fromisoformat(redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart))).total_seconds() < max_time_running:
+            return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
+        else:
+            pipeline = redis_store.pipeline()
+            pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "completed")
+            pipeline.set(DeviceKeys.device_assignment(device_base), "null")
+            pipeline.sadd(ErrorKeys.errors(), task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Receiver side: task timed out")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            results = pipeline.execute()
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
     except:
@@ -269,8 +369,7 @@ def assign_task_primary():
     pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
 
-    max_time_running = current_app.config['MAX_TIME_RUNNING']
-    
+    redis_store.hset(t, TaskKeys.receiverProcessingStart, datetime.now().isoformat())
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
@@ -280,6 +379,7 @@ def assign_task_secondary():
         return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
+    max_time_running = current_app.config['MAX_TIME_RUNNING']
     try:
         max_seconds_waiting = int(request.args.get('max_seconds') or '25')
     except:
@@ -297,11 +397,10 @@ def assign_task_secondary():
     while task_identifier is None and time.time() <= maximum_time:
 
         task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
-        t = TaskKeys.identifier(task_identifier)
-        if redis_store.hget(t, TaskKeys.status) == "transmitter still processing" or redis_store.hget(t, TaskKeys.status) == "fully assigned":
-            return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
-        if redis_store.hget(t, TaskKeys.status) != "receiver assigned" and redis_store.hget(t, TaskKeys.status) != "waiting on transmitter":
-            task_identifier = None
+        if task_identifier is not None:
+            t = TaskKeys.identifier(task_identifier)
+            if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
+                task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
@@ -319,8 +418,7 @@ def assign_task_secondary():
     pipeline.hset(t, TaskKeys.status, "fully assigned")
     results = pipeline.execute()
 
-    max_time_running = current_app.config['MAX_TIME_RUNNING']
-    
+    redis_store.hset(t, TaskKeys.transmitterProcessingStart, datetime.now().isoformat())
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])

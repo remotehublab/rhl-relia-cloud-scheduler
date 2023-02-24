@@ -1,5 +1,24 @@
 from flask import current_app
 
+class ErrorKeys:
+
+    uniqueIdentifier = "uniqueIdentifier"
+    author = "author"
+    errorMessage = "errorMessage"
+    errorTime = "errorTime"
+
+    @staticmethod
+    def errors() -> str:
+        return f"{ErrorKeys.base_key()}:relia:scheduler:errors"
+
+    @staticmethod
+    def identifier(identifier) -> str:
+        return f"{ErrorKeys.base_key()}:relia:scheduler:errors:{identifier}"
+
+    @staticmethod
+    def base_key():
+        return current_app.config.get('BASE_KEY') or 'base'
+
 class TaskKeys:
 
     uniqueIdentifier = "uniqueIdentifier"
@@ -13,6 +32,8 @@ class TaskKeys:
     priority = "priority"
     transmitterAssigned = "transmitterAssigned"
     receiverAssigned = "receiverAssigned"
+    transmitterProcessingStart = "transmitterProcessingStart"
+    receiverProcessingStart = "receiverProcessingStart"
     status = "status"
     errorMessage = "errorMessage"
     errorTime = "errorTime"
