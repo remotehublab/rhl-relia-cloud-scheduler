@@ -248,7 +248,6 @@ def delete_task(task_identifier, user_id):
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
         priority = redis_store.hget(t, TaskKeys.priority)
-        current_app.logger.info(priority)
         if priority == None:
             pipeline = redis_store.pipeline()
             pipeline.sadd(ErrorKeys.errors(), task_identifier)
