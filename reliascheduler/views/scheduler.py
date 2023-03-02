@@ -26,7 +26,7 @@ scheduler_blueprint = Blueprint('scheduler', __name__)
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
 def get_one_task(task_identifier, user_id):
     t = TaskKeys.identifier(task_identifier)
-    author = redis_store.hget(TaskKeys.identifier(t), TaskKeys.author)
+    author = redis_store.hget(t, TaskKeys.author)
     if author == None:
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
@@ -35,7 +35,7 @@ def get_one_task(task_identifier, user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Failure")
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Task identifier does not exist")
     if author != user_id and author != "Omnipotent":
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
@@ -44,7 +44,7 @@ def get_one_task(task_identifier, user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to access the status of the task")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Failure")    
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="You do not have permission to access the status of the task")    
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
 
 @scheduler_blueprint.route('/user/all-tasks/<user_id>', methods=['GET'])
