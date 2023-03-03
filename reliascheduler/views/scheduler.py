@@ -35,7 +35,7 @@ def get_one_task(task_identifier, user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, message="Task identifier does not exist")
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
     if author != user_id and author != "Omnipotent":
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
@@ -45,7 +45,7 @@ def get_one_task(task_identifier, user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
         return jsonify(success=False, status=None, receiver=None, transmitter=None, message="You do not have permission to access the status of the task")    
-    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), message="Success")
+    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
 
 @scheduler_blueprint.route('/user/all-tasks/<user_id>', methods=['GET'])
 def get_all_tasks(user_id):
@@ -278,13 +278,19 @@ def delete_task(task_identifier, user_id):
   
     return jsonify(success=True, message="Successfully deleted")
 
-@scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
-def complete_device_task(type, task_identifier):
-    device = check_device_credentials()
-    if device is None:
-        return jsonify(success=False, status=None, message="Invalid device credentials"), 401
+@scheduler_blueprint.route('/devices/tasks/<type_preprocess>/<task_identifier>', methods=['POST'])
+def complete_device_task(type_preprocess, task_identifier):
+    if type_preprocess == "receiver_timeout":
+        type = "receiver"
+    elif type_preprocess == "transmitter_timeout":
+        type = "transmitter"
+    else:
+        type = type_preprocess
+        device = check_device_credentials()
+        if device is None:
+            return jsonify(success=False, status=None, message="Invalid device credentials"), 401
+    
     device_base = device.split(':')[0]
-
     t = TaskKeys.identifier(task_identifier)
     status_msg = "Error"
     if type == "receiver":
@@ -316,6 +322,7 @@ def assign_task_primary():
     max_time_running = current_app.config['MAX_TIME_RUNNING']
     task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
     if task_identifier and task_identifier != "null":
+        user_id = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.author)
         if (datetime.now() - datetime.fromisoformat(redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart))).total_seconds() < max_time_running:
             return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
         else:
@@ -369,6 +376,8 @@ def assign_task_primary():
     results = pipeline.execute()
 
     redis_store.hset(t, TaskKeys.receiverProcessingStart, datetime.now().isoformat())
+    session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
+    redis_store.sadd(session_key, device)
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
@@ -418,6 +427,9 @@ def assign_task_secondary():
     results = pipeline.execute()
 
     redis_store.hset(t, TaskKeys.transmitterProcessingStart, datetime.now().isoformat())
+    session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
+    redis_store.sadd(session_key, device)
+    current_app.logger.info(redis_store.smembers(session_key))
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
