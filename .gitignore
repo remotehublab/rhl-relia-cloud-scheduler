@@ -1,5 +1,7 @@
 device-credentials.json
-
+*.swp
+*.swo
+.DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
