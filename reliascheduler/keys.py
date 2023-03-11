@@ -37,6 +37,7 @@ class TaskKeys:
     status = "status"
     errorMessage = "errorMessage"
     errorTime = "errorTime"
+    localTimeRemaining = "localTimeRemaining"
 
     @staticmethod
     def tasks() -> str:

@@ -36,7 +36,7 @@ def get_one_task(task_identifier, user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
         return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
-    if author != user_id and author != "Omnipotent":
+    if author != user_id:
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
@@ -228,6 +228,7 @@ def load_task(user_id):
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "queued")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorMessage, "null")
     pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorTime, "null")
+    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.localTimeRemaining, "60")
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -237,6 +238,32 @@ def load_task(user_id):
      
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
+@scheduler_blueprint.route('/user/get-task-time/<task_identifier>/<user_id>', methods=['GET', 'POST'])
+def get_local_time(task_identifier, user_id):
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, timeRemaining="0"), 401
+
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)    
+    if author == user_id:
+        return jsonify(success=True, timeRemaining=redis_store.hget(t, TaskKeys.localTimeRemaining))
+    else:
+        return jsonify(success=False, timeRemaining="0")
+
+@scheduler_blueprint.route('/user/set-task-time/<task_identifier>/<user_id>/<time_remaining>', methods=['GET', 'POST'])
+def update_local_time(task_identifier, user_id, time_remaining):
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False), 401
+
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)    
+    if author == user_id:
+        redis_store.hset(t, TaskKeys.localTimeRemaining, time_remaining)
+        return jsonify(success=True)
+    else:
+        return jsonify(success=False)
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
 def delete_task(task_identifier, user_id):
@@ -278,17 +305,49 @@ def delete_task(task_identifier, user_id):
   
     return jsonify(success=True, message="Successfully deleted")
 
-@scheduler_blueprint.route('/devices/tasks/<type_preprocess>/<task_identifier>', methods=['POST'])
-def complete_device_task(type_preprocess, task_identifier):
-    if type_preprocess == "receiver_timeout":
-        type = "receiver"
-    elif type_preprocess == "transmitter_timeout":
-        type = "transmitter"
-    else:
-        type = type_preprocess
-        device = check_device_credentials()
-        if device is None:
-            return jsonify(success=False, status=None, message="Invalid device credentials"), 401
+@scheduler_blueprint.route('/user/complete-tasks/<task_identifier>/<user_id>', methods=['GET', 'POST'])
+def complete_user_task(type, task_identifier, user_id):
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)
+    if author == None:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, message="Task identifier does not exist")
+    if author != user_id:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to access the task")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, message="You do not have permission to access the task")  
+    if redis_store.hget(t, TaskKeys.status) == "queued":  
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You are accessing an invalid page")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, message="You are accessing an invalid page") 
+
+    redis_store.hset(t, TaskKeys.status, "completed")
+    if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
+        device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
+        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+    return jsonify(success=True, status="completed", message="Completed")
+
+@scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
+def complete_device_task(type, task_identifier):
+    device = check_device_credentials()
+    if device is None:
+        return jsonify(success=False, status=None, message="Invalid device credentials"), 401
     
     device_base = device.split(':')[0]
     t = TaskKeys.identifier(task_identifier)
@@ -311,6 +370,21 @@ def complete_device_task(type_preprocess, task_identifier):
             redis_store.hset(t, TaskKeys.status, "completed")
             status_msg = "completed"
     return jsonify(success=True, status=status_msg, message="Completed")
+
+@scheduler_blueprint.route('/devices/task-status/<task_identifier>', methods=['GET', 'POST'])
+def get_task_status(task_identifier):
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)
+    if author == None:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")   
+    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def assign_task_primary():
