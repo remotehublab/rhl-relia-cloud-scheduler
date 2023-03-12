@@ -92,6 +92,16 @@ def get_errors(user_id):
             new_error_messages.append(error_messages[i])
     return jsonify(success=True, ids=new_task_id, errors=new_error_messages)
 
+@scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
+def poll(task_id):
+
+    authenticated = check_backend_credentials()
+    if not authenticated:
+        return jsonify(success=False, message="Invalid secret"), 401
+
+    redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 15, "1")
+    return jsonify(success=True)
+
 @scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
 def load_task(user_id):
 
@@ -306,7 +316,7 @@ def delete_task(task_identifier, user_id):
     return jsonify(success=True, message="Successfully deleted")
 
 @scheduler_blueprint.route('/user/complete-tasks/<task_identifier>/<user_id>', methods=['GET', 'POST'])
-def complete_user_task(type, task_identifier, user_id):
+def complete_user_task(task_identifier, user_id):
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if author == None:
@@ -384,7 +394,16 @@ def get_task_status(task_identifier):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
         return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")   
+    x = is_task_active(task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
+
+@scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
+def is_task_active(task_id):
+    if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
+        complete_device_task("receiver", task_id)
+        complete_device_task("transmitter", task_id)
+        return False
+    return True
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def assign_task_primary():
@@ -428,6 +447,8 @@ def assign_task_primary():
         # find a task, then assign it
         for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
             task_identifier = redis_store.rpop(TaskKeys.priority_queue(priority))
+            if not is_task_active(task_identifier):
+                task_identifier = None
             if task_identifier is not None:
                 break
 
@@ -436,7 +457,7 @@ def assign_task_primary():
 
     if task_identifier is None:
         return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
-
+        
     # at this point, there is a task, which was the next task taking into account
     # priority and FIFO.
     pipeline = redis_store.pipeline()
@@ -482,6 +503,8 @@ def assign_task_secondary():
         if task_identifier is not None:
             t = TaskKeys.identifier(task_identifier)
             if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
+                task_identifier = None
+            if not is_task_active(task_identifier):
                 task_identifier = None
 
         if task_identifier is None:
