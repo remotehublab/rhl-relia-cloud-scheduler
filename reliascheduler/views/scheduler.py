@@ -399,6 +399,7 @@ def get_task_status(task_identifier):
 
 @scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def is_task_active(task_id):
+    current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
     if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
         complete_device_task("receiver", task_id)
         complete_device_task("transmitter", task_id)
@@ -526,7 +527,6 @@ def assign_task_secondary():
     redis_store.hset(t, TaskKeys.transmitterProcessingStart, datetime.now().isoformat())
     session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
     redis_store.sadd(session_key, device)
-    current_app.logger.info(redis_store.smembers(session_key))
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
