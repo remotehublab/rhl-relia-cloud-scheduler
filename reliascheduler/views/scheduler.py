@@ -63,9 +63,9 @@ def get_all_tasks(user_id):
 
 @scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
 def get_errors(user_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, message="Invalid secret"), 401
+#    authenticated = check_backend_credentials()
+#    if not authenticated:
+#        return jsonify(success=False, message="Invalid secret"), 401
 
     task_id = []
     error_messages = []
@@ -95,9 +95,9 @@ def get_errors(user_id):
 @scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def poll(task_id):
 
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, message="Invalid secret"), 401
+#    authenticated = check_backend_credentials()
+#    if not authenticated:
+#        return jsonify(success=False, message="Invalid secret"), 401
 
     redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 15, "1")
     return jsonify(success=True)
@@ -250,9 +250,9 @@ def load_task(user_id):
 
 @scheduler_blueprint.route('/user/get-task-time/<task_identifier>/<user_id>', methods=['GET', 'POST'])
 def get_local_time(task_identifier, user_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, timeRemaining="0"), 401
+#    authenticated = check_backend_credentials()
+#    if not authenticated:
+#        return jsonify(success=False, timeRemaining="0"), 401
 
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)    
@@ -263,9 +263,9 @@ def get_local_time(task_identifier, user_id):
 
 @scheduler_blueprint.route('/user/set-task-time/<task_identifier>/<user_id>/<time_remaining>', methods=['GET', 'POST'])
 def update_local_time(task_identifier, user_id, time_remaining):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False), 401
+#    authenticated = check_backend_credentials()
+#    if not authenticated:
+#        return jsonify(success=False), 401
 
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)    
@@ -277,9 +277,9 @@ def update_local_time(task_identifier, user_id, time_remaining):
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
 def delete_task(task_identifier, user_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, message="Invalid secret"), 401
+#    authenticated = check_backend_credentials()
+#    if not authenticated:
+#        return jsonify(success=False, message="Invalid secret"), 401
 
     request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
