@@ -400,7 +400,7 @@ def get_task_status(task_identifier):
 @scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def is_task_active(task_id):
     current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
-    if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
+    if redis_store.get(f"{TaskKeys.base_key()}:relia:scheduler:tasks:{task_id}:user-active") not in ("1", b"1"):
         complete_device_task("receiver", task_id)
         complete_device_task("transmitter", task_id)
         return False
@@ -448,8 +448,8 @@ def assign_task_primary():
         # find a task, then assign it
         for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
             task_identifier = redis_store.rpop(TaskKeys.priority_queue(priority))
-            if not is_task_active(task_identifier):
-                task_identifier = None
+            # if not is_task_active(task_identifier):
+            #    task_identifier = None
             if task_identifier is not None:
                 break
 
@@ -505,8 +505,8 @@ def assign_task_secondary():
             t = TaskKeys.identifier(task_identifier)
             if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
                 task_identifier = None
-            if not is_task_active(task_identifier):
-                task_identifier = None
+            # if not is_task_active(task_identifier):
+            #    task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
