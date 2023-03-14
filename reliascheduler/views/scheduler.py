@@ -400,7 +400,7 @@ def get_task_status(task_identifier):
 @scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def is_task_active(task_id):
     current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
-    if redis_store.get(f"{TaskKeys.base_key()}:relia:scheduler:tasks:{task_id}:user-active") not in ("1", b"1"):
+    if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
         complete_device_task("receiver", task_id)
         complete_device_task("transmitter", task_id)
         return False
