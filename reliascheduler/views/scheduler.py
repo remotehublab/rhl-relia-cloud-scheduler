@@ -53,13 +53,28 @@ def get_all_tasks(user_id):
     task_status = []
     task_receiver = []
     task_transmitter = []
+    started_times = []
     for t in redis_store.smembers(TaskKeys.tasks()):
         if redis_store.hget(TaskKeys.identifier(t), TaskKeys.author) == user_id:
             task_id.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.uniqueIdentifier))
             task_status.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.status))
             task_receiver.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.receiverAssigned))
             task_transmitter.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.transmitterAssigned))
-    return jsonify(success=True, ids=task_id, statuses=task_status, receivers=task_receiver, transmitters=task_transmitter, method="Success")
+            started_times.append(redis_store.hget(TaskKeys.identifier(t), TaskKeys.startedTime))
+
+    sorted_times = np.argsort([datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%f') for x in started_times])
+    most_recent = sorted(range(len(sorted_times)), key=lambda i: sorted_times[i])[-5:]
+    
+    new_task_id = []
+    new_task_status = []
+    new_task_receiver = []
+    new_task_transmitter = []
+    for i in most_recent:
+            new_task_id.append(task_id[i])
+            new_task_status.append(task_status[i])
+            new_task_receiver.append(task_receiver[i])
+            new_task_transmitter.append(task_transmitter[i])
+    return jsonify(success=True, ids=new_task_id, statuses=new_task_status, receivers=new_task_receiver, transmitters=new_task_transmitter, method="Success")
 
 @scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
 def get_errors(user_id):
