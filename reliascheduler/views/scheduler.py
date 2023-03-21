@@ -25,10 +25,6 @@ scheduler_blueprint = Blueprint('scheduler', __name__)
 
 @scheduler_blueprint.route('/user/decode-alt/<alt_identifier>', methods=['POST'])
 def decode_identifier(alt_identifier):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, taskId=None, userId=None, receiver=None, transmitter=None, message="Invalid secret"), 401
-
     t = TaskKeys.identifier(redis_store.get(TaskKeys.alt_identifier(alt_identifier)))
     return jsonify(success=True, taskId=redis_store.hget(t, TaskKeys.uniqueIdentifier), userId=redis_store.hget(t, TaskKeys.author), receiver=redis_store.hget(t, TaskKeys.receiverFilename), transmitter=redis_store.hget(t, TaskKeys.transmitterFilename), message="Success")
 
@@ -36,7 +32,8 @@ def decode_identifier(alt_identifier):
 def get_one_task(task_identifier, user_id):
     authenticated = check_backend_credentials()
     if not authenticated:
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid secret"), 401
+        if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request.headers.get('relia-secret')):
+            return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid secret"), 401
 
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
@@ -126,10 +123,11 @@ def get_errors(user_id):
 
 @scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def poll(task_id):
-
     authenticated = check_backend_credentials()
     if not authenticated:
-        return jsonify(success=False), 401
+        request_data = request.get_json(silent=True, force=True)
+        if (redis_store.hget(TaskKeys.identifier(task_id), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
+            return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid secret"), 401
 
     redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 15, "1")
     return jsonify(success=True)
@@ -263,25 +261,26 @@ def load_task(user_id):
     else:
         alt_identifier = request_data.get('alt_id')
 
+    t = TaskKeys.identifier(task_identifier)
     pipeline = redis_store.pipeline()
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.uniqueIdentifier, task_identifier)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.author, user_id)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFilename, transmitter_filename)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterFile, transmitter_file)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverFilename, receiver_filename)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverFile, receiver_file)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.sessionId, session_id)
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.startedTime, datetime.now().isoformat())
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.priority, str(priority))
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterAssigned, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverAssigned, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.transmitterProcessingStart, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "queued")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorMessage, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.errorTime, "null")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.localTimeRemaining, "0")
-    pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier, alt_identifier)
+    pipeline.hset(t, TaskKeys.uniqueIdentifier, task_identifier)
+    pipeline.hset(t, TaskKeys.author, user_id)
+    pipeline.hset(t, TaskKeys.transmitterFilename, transmitter_filename)
+    pipeline.hset(t, TaskKeys.transmitterFile, transmitter_file)
+    pipeline.hset(t, TaskKeys.receiverFilename, receiver_filename)
+    pipeline.hset(t, TaskKeys.receiverFile, receiver_file)
+    pipeline.hset(t, TaskKeys.sessionId, session_id)
+    pipeline.hset(t, TaskKeys.startedTime, datetime.now().isoformat())
+    pipeline.hset(t, TaskKeys.priority, str(priority))
+    pipeline.hset(t, TaskKeys.transmitterAssigned, "null")
+    pipeline.hset(t, TaskKeys.receiverAssigned, "null")
+    pipeline.hset(t, TaskKeys.transmitterProcessingStart, "null")
+    pipeline.hset(t, TaskKeys.receiverProcessingStart, "null")
+    pipeline.hset(t, TaskKeys.status, "queued")
+    pipeline.hset(t, TaskKeys.errorMessage, "null")
+    pipeline.hset(t, TaskKeys.errorTime, "null")
+    pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
+    pipeline.hset(t, TaskKeys.altIdentifier, alt_identifier)
     pipeline.set(TaskKeys.alt_identifier(alt_identifier), task_identifier)
 
     # Add to the corresponding bucket queue the task identifier
@@ -294,18 +293,18 @@ def load_task(user_id):
 
 @scheduler_blueprint.route('/user/get-task-time/<task_identifier>', methods=['GET', 'POST'])
 def get_local_time(task_identifier):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, timeRemaining="0"), 401
+    request_data = request.get_json(silent=True, force=True)
+    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
+        return jsonify(success=False, timeRemaining='0')
 
     t = TaskKeys.identifier(task_identifier)
     return jsonify(success=True, timeRemaining=redis_store.hget(t, TaskKeys.localTimeRemaining))
 
 @scheduler_blueprint.route('/user/set-task-time/<task_identifier>/<time_remaining>', methods=['GET', 'POST'])
 def update_local_time(task_identifier, time_remaining):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False), 401
+    request_data = request.get_json(silent=True, force=True)
+    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
+        return jsonify(success=False)
 
     t = TaskKeys.identifier(task_identifier)  
     redis_store.hset(t, TaskKeys.localTimeRemaining, time_remaining)
@@ -313,11 +312,15 @@ def update_local_time(task_identifier, time_remaining):
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
 def delete_task(task_identifier, user_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, message="Invalid secret"), 401
-
     request_data = request.get_json(silent=True, force=True)
+    if request_data.get('relia-secret') != "None":
+        if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
+            return jsonify(success=False, message="Invalid secret"), 401
+    else:
+        authenticated = check_backend_credentials()
+        if not authenticated:
+            return jsonify(success=False, message="Invalid secret"), 401
+
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
         priority = redis_store.hget(t, TaskKeys.priority)
@@ -353,9 +356,9 @@ def delete_task(task_identifier, user_id):
 
 @scheduler_blueprint.route('/user/complete-tasks/<task_identifier>', methods=['GET', 'POST'])
 def complete_user_task(task_identifier):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        return jsonify(success=False, status=None, message="Invalid secret"), 401
+    request_data = request.get_json(silent=True, force=True)
+    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
+        return jsonify(success=False, status=None, message="Invalid secret key")
 
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
@@ -363,7 +366,7 @@ def complete_user_task(task_identifier):
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, pipeline.hget(t, TaskKeys.author))
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, author)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You are accessing an invalid page")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
