@@ -23,18 +23,8 @@ logger = logging.getLogger(__name__)
 
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
-@scheduler_blueprint.route('/user/decode-alt/<alt_identifier>', methods=['POST'])
-def decode_identifier(alt_identifier):
-    t = TaskKeys.identifier(redis_store.get(TaskKeys.alt_identifier(alt_identifier)))
-    return jsonify(success=True, taskId=redis_store.hget(t, TaskKeys.uniqueIdentifier), userId=redis_store.hget(t, TaskKeys.author), receiver=redis_store.hget(t, TaskKeys.receiverFilename), transmitter=redis_store.hget(t, TaskKeys.transmitterFilename), message="Success")
-
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
 def get_one_task(task_identifier, user_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request.headers.get('relia-secret')):
-            return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid secret"), 401
-
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if author == None:
@@ -123,12 +113,6 @@ def get_errors(user_id):
 
 @scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def poll(task_id):
-    authenticated = check_backend_credentials()
-    if not authenticated:
-        request_data = request.get_json(silent=True, force=True)
-        if (redis_store.hget(TaskKeys.identifier(task_id), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
-            return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid secret"), 401
-
     redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 15, "1")
     return jsonify(success=True)
 
@@ -137,7 +121,7 @@ def load_task(user_id):
 
     authenticated = check_backend_credentials()
     if not authenticated:
-        return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message="Invalid secret"), 401
+        return jsonify(success=False, taskIdentifier=None, status=None, message="Invalid secret"), 401
 
     request_data = request.get_json(silent=True, force=True)
     # It should be something like:
@@ -180,7 +164,7 @@ def load_task(user_id):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "No grc_files provided")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         result = pipeline.execute()
-        return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message="No grc_files provided")
+        return jsonify(success=False, taskIdentifier=None, status=None, message="No grc_files provided")
 
     for grc_file_type in ('receiver', 'transmitter'):
         grc_file_data = grc_files.get(grc_file_type)
@@ -194,7 +178,7 @@ def load_task(user_id):
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No {grc_file_type} found in grc_files")
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
             result = pipeline.execute()
-            return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message=f"No {grc_file_type} found in grc_files")
+            return jsonify(success=False, taskIdentifier=None, status=None, message=f"No {grc_file_type} found in grc_files")
 
         filename = grc_file_data.get('filename')
         if not filename:
@@ -208,7 +192,7 @@ def load_task(user_id):
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No filename found in {grc_file_type} in grc_files")
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
             result = pipeline.execute()
-            return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message=f"No filename found in {grc_file_type} in grc_files")
+            return jsonify(success=False, taskIdentifier=None, status=None, message=f"No filename found in {grc_file_type} in grc_files")
         content = grc_file_data.get('content')
         if not content:
             task_identifier = secrets.token_urlsafe()
@@ -220,7 +204,7 @@ def load_task(user_id):
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"No content found in {grc_file_type} in grc_files")
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
             result = pipeline.execute()
-            return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message=f"No content found in {grc_file_type} in grc_files")
+            return jsonify(success=False, taskIdentifier=None, status=None, message=f"No content found in {grc_file_type} in grc_files")
 
         try:
             yaml.safe_load(content)
@@ -234,7 +218,7 @@ def load_task(user_id):
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"Invalid content (not yaml) for provided {grc_file_type}")
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
             result = pipeline.execute()
-            return jsonify(success=False, taskIdentifier=None, altIdentifier=None, status=None, message=f"Invalid content (not yaml) for provided {grc_file_type}")
+            return jsonify(success=False, taskIdentifier=None, status=None, message=f"Invalid content (not yaml) for provided {grc_file_type}")
         # in the future we might check more things about the .grc files
 
     # We have checked the data, so we can now do:
@@ -253,13 +237,6 @@ def load_task(user_id):
             task_identifier = secrets.token_urlsafe()
     else:
         task_identifier = request_data.get('task_id')
-
-    if (request_data.get('alt_id') == "None"):
-        alt_identifier = secrets.token_urlsafe()
-        while redis_store.sadd(TaskKeys.alt_tasks(), task_identifier) == 0:
-            alt_identifier = secrets.token_urlsafe()
-    else:
-        alt_identifier = request_data.get('alt_id')
 
     t = TaskKeys.identifier(task_identifier)
     pipeline = redis_store.pipeline()
@@ -280,8 +257,6 @@ def load_task(user_id):
     pipeline.hset(t, TaskKeys.errorMessage, "null")
     pipeline.hset(t, TaskKeys.errorTime, "null")
     pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
-    pipeline.hset(t, TaskKeys.altIdentifier, alt_identifier)
-    pipeline.set(TaskKeys.alt_identifier(alt_identifier), task_identifier)
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -289,38 +264,10 @@ def load_task(user_id):
 
     result = pipeline.execute()
      
-    return jsonify(success=True, taskIdentifier=task_identifier, altIdentifier=alt_identifier, status='queued', message="Loading successful")
-
-@scheduler_blueprint.route('/user/get-task-time/<task_identifier>', methods=['GET', 'POST'])
-def get_local_time(task_identifier):
-    request_data = request.get_json(silent=True, force=True)
-    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
-        return jsonify(success=False, timeRemaining='0')
-
-    t = TaskKeys.identifier(task_identifier)
-    return jsonify(success=True, timeRemaining=redis_store.hget(t, TaskKeys.localTimeRemaining))
-
-@scheduler_blueprint.route('/user/set-task-time/<task_identifier>/<time_remaining>', methods=['GET', 'POST'])
-def update_local_time(task_identifier, time_remaining):
-    request_data = request.get_json(silent=True, force=True)
-    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
-        return jsonify(success=False)
-
-    t = TaskKeys.identifier(task_identifier)  
-    redis_store.hset(t, TaskKeys.localTimeRemaining, time_remaining)
-    return jsonify(success=True)
+    return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
 def delete_task(task_identifier, user_id):
-    request_data = request.get_json(silent=True, force=True)
-    if request_data.get('relia-secret') != "None":
-        if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
-            return jsonify(success=False, message="Invalid secret"), 401
-    else:
-        authenticated = check_backend_credentials()
-        if not authenticated:
-            return jsonify(success=False, message="Invalid secret"), 401
-
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
         priority = redis_store.hget(t, TaskKeys.priority)
@@ -356,10 +303,6 @@ def delete_task(task_identifier, user_id):
 
 @scheduler_blueprint.route('/user/complete-tasks/<task_identifier>', methods=['GET', 'POST'])
 def complete_user_task(task_identifier):
-    request_data = request.get_json(silent=True, force=True)
-    if (redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.altIdentifier) != request_data.get('relia-secret')):
-        return jsonify(success=False, status=None, message="Invalid secret key")
-
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if redis_store.hget(t, TaskKeys.status) == "queued":  

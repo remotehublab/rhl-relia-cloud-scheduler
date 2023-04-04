@@ -38,23 +38,14 @@ class TaskKeys:
     errorMessage = "errorMessage"
     errorTime = "errorTime"
     localTimeRemaining = "localTimeRemaining"
-    altIdentifier = "altIdentifier"
 
     @staticmethod
     def tasks() -> str:
         return f"{TaskKeys.base_key()}:relia:scheduler:tasks"
 
     @staticmethod
-    def alt_tasks() -> str:
-        return f"{TaskKeys.base_key()}:relia:scheduler:alt-tasks"
-
-    @staticmethod
     def identifier(identifier) -> str:
         return f"{TaskKeys.base_key()}:relia:scheduler:tasks:{identifier}"
-
-    @staticmethod
-    def alt_identifier(identifier) -> str:
-        return f"{TaskKeys.base_key()}:relia:scheduler:alt-tasks:{identifier}"
 
     @staticmethod
     def base_key():
