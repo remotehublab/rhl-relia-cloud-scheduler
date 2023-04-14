@@ -268,6 +268,7 @@ def load_task(user_id):
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
 def delete_task(task_identifier, user_id):
+    request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
         priority = redis_store.hget(t, TaskKeys.priority)
