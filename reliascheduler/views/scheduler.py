@@ -305,21 +305,14 @@ def delete_task(task_identifier, user_id):
 @scheduler_blueprint.route('/user/complete-tasks/<task_identifier>', methods=['GET', 'POST'])
 def complete_user_task(task_identifier):
     t = TaskKeys.identifier(task_identifier)
-    author = redis_store.hget(t, TaskKeys.author)
-    if redis_store.hget(t, TaskKeys.status) == "queued":  
-        pipeline = redis_store.pipeline()
-        pipeline.sadd(ErrorKeys.errors(), task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, author)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You are accessing an invalid page")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-        results = pipeline.execute()
-        return jsonify(success=False, status=None, message="You are accessing an invalid page") 
-
+    priority = redis_store.hget(t, TaskKeys.priority)
     redis_store.hset(t, TaskKeys.status, "completed")
+    if redis_store.hget(t, TaskKeys.status) == "queued":
+        task_identifier = redis_store.rpop(TaskKeys.priority_queue(redis_store.hget(t, TaskKeys.priority)))
     if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
         device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
         redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+    redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
     return jsonify(success=True, status="completed", message="Completed")
 
 @scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
