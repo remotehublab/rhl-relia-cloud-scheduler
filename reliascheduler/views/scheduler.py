@@ -113,7 +113,7 @@ def get_errors(user_id):
 
 @scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def poll(task_id):
-    redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 15, "1")
+    redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 10, "1")
     return jsonify(success=True)
 
 @scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
@@ -360,7 +360,7 @@ def get_task_status(task_identifier):
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
         return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")   
-    # x = is_task_active(task_identifier)
+    x = is_task_active(task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
 
 @scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
@@ -414,8 +414,8 @@ def assign_task_primary():
         # find a task, then assign it
         for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
             task_identifier = redis_store.rpop(TaskKeys.priority_queue(priority))
-            # if not is_task_active(task_identifier):
-            #    task_identifier = None
+            if not is_task_active(task_identifier):
+                task_identifier = None
             if task_identifier is not None:
                 break
 
@@ -471,8 +471,8 @@ def assign_task_secondary():
             t = TaskKeys.identifier(task_identifier)
             if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
                 task_identifier = None
-            # if not is_task_active(task_identifier):
-            #    task_identifier = None
+            if not is_task_active(task_identifier):
+                task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
