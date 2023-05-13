@@ -257,6 +257,7 @@ def load_task(user_id):
     pipeline.hset(t, TaskKeys.errorMessage, "null")
     pipeline.hset(t, TaskKeys.errorTime, "null")
     pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
+    pipeline.hset(t, TaskKeys.inactiveCount, "0")
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -372,11 +373,17 @@ def get_task_status(task_identifier):
 
 @scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def is_task_active(task_id):
-    current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
-    if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
-        complete_device_task("receiver", task_id)
-        complete_device_task("transmitter", task_id)
-        return False
+    t = TaskKeys.identifier(task_id)
+    ic = redis_store.hget(t, TaskKeys.inactiveCount)
+    if ic != None:
+        current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
+        current_app.logger.info(ic)
+        if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
+            redis_store.hset(t, TaskKeys.inactiveCount, str(int(ic) + 1))
+            if int(ic) > 5:
+                complete_device_task("receiver", task_id)
+                complete_device_task("transmitter", task_id)
+                return False
     return True
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
@@ -478,7 +485,7 @@ def assign_task_secondary():
             t = TaskKeys.identifier(task_identifier)
             if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
                 task_identifier = None
-            if not is_task_active(task_identifier):
+            if task_identifier != None and not is_task_active(task_identifier):
                 task_identifier = None
 
         if task_identifier is None:
