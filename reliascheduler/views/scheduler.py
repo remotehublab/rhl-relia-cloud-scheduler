@@ -256,7 +256,7 @@ def load_task(user_id):
     pipeline.hset(t, TaskKeys.receiverAssigned, "null")
     pipeline.hset(t, TaskKeys.transmitterProcessingStart, "null")
     pipeline.hset(t, TaskKeys.receiverProcessingStart, "null")
-    pipeline.hset(t, TaskKeys.status, "queued")
+    pipeline.hset(t, TaskKeys.status, TaskKeys.Status.queued)
     pipeline.hset(t, TaskKeys.errorMessage, "null")
     pipeline.hset(t, TaskKeys.errorTime, "null")
     pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
@@ -295,8 +295,8 @@ def delete_task(task_identifier, user_id):
             results = pipeline.execute()
             return jsonify(success=False, message="Task not authored by user")
 
-        redis_store.hset(t, TaskKeys.status, "deleted")
-        if redis_store.hget(t, TaskKeys.status) == "queued":
+        redis_store.hset(t, TaskKeys.status, TaskKeys.Status.deleted)
+        if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.queued:
             task_identifier = redis_store.rpop(TaskKeys.priority_queue(redis_store.hget(t, TaskKeys.priority)))
         if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
             device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
@@ -310,7 +310,7 @@ def delete_task(task_identifier, user_id):
 def complete_user_task(task_identifier):
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
-    if redis_store.hget(t, TaskKeys.status) == "queued":  
+    if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.queued: 
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
@@ -320,7 +320,7 @@ def complete_user_task(task_identifier):
         results = pipeline.execute()
         return jsonify(success=False, status=None, message="You are accessing an invalid page") 
 
-    redis_store.hset(t, TaskKeys.status, "completed")
+    redis_store.hset(t, TaskKeys.status, TaskKeys.Status.completed)
     if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
         device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
         redis_store.set(DeviceKeys.device_assignment(device_base), "null")
@@ -339,24 +339,24 @@ def complete_device_task(type, task_identifier):
 
 def _complete_device_task_impl(device_base: str, type: str, task_identifier: str) -> dict:
     t = TaskKeys.identifier(task_identifier)
-    status_msg = "Error"
+    status_msg = TaskKeys.Status.error
     if type == "receiver":
-        if redis_store.hget(t, TaskKeys.status) == "receiver assigned" or redis_store.hget(t, TaskKeys.status) == "receiver still processing":
-            status_msg = "completed"
-        elif redis_store.hget(t, TaskKeys.status) == "fully assigned":
-            status_msg = "transmitter still processing"
+        if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.receiver_assigned or redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.receiver_still_processing:
+            status_msg = TaskKeys.Status.completed
+        elif redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.fully_assigned:
+            status_msg = TaskKeys.Status.transmitter_still_processing
         pipeline = redis_store.pipeline()
-        if status_msg != "Error":
+        if status_msg != TaskKeys.Status.error:
             pipeline.hset(t, TaskKeys.status, status_msg)
         pipeline.set(DeviceKeys.device_assignment(device_base), "null")
         results = pipeline.execute()
     if type == "transmitter":
-        if redis_store.hget(t, TaskKeys.status) == "fully assigned":
-            redis_store.hset(t, TaskKeys.status, "receiver still processing")
-            status_msg = "receiver still processing"
-        elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
-            redis_store.hset(t, TaskKeys.status, "completed")
-            status_msg = "completed"
+        if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.fully_assigned:
+            redis_store.hset(t, TaskKeys.status, TaskKeys.Status.receiver_still_processing)
+            status_msg = TaskKeys.Status.receiver_still_processing
+        elif redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.transmitter_still_processing:
+            redis_store.hset(t, TaskKeys.status, TaskKeys.Status.completed)
+            status_msg = TaskKeys.Status.completed
     return {
         'success': True, 
         'status': status_msg, 
@@ -419,7 +419,7 @@ def assign_task_primary():
             return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
         else:
             pipeline = redis_store.pipeline()
-            pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, "completed")
+            pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, TaskKeys.Status.completed)
             pipeline.set(DeviceKeys.device_assignment(device_base), "null")
             pipeline.sadd(ErrorKeys.errors(), task_identifier)
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
@@ -465,7 +465,7 @@ def assign_task_primary():
     pipeline.hget(t, TaskKeys.receiverFile)
     pipeline.hget(t, TaskKeys.sessionId)
     pipeline.hset(t, TaskKeys.receiverAssigned, device)
-    pipeline.hset(t, TaskKeys.status, "receiver assigned")
+    pipeline.hset(t, TaskKeys.status, TaskKeys.Status.receiver_assigned)
     pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
 
@@ -501,7 +501,7 @@ def assign_task_secondary():
         task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
         if task_identifier is not None:
             t = TaskKeys.identifier(task_identifier)
-            if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
+            if redis_store.hget(t, TaskKeys.status) != TaskKeys.Status.receiver_assigned:
                 task_identifier = None
             if task_identifier is not None:
                 if _stop_task_if_inactive(device_base, task_identifier):
@@ -520,7 +520,7 @@ def assign_task_secondary():
     pipeline.hget(t, TaskKeys.transmitterFile)
     pipeline.hget(t, TaskKeys.sessionId)
     pipeline.hset(t, TaskKeys.transmitterAssigned, device)
-    pipeline.hset(t, TaskKeys.status, "fully assigned")
+    pipeline.hset(t, TaskKeys.status, TaskKeys.Status.fully_assigned)
     results = pipeline.execute()
 
     redis_store.hset(t, TaskKeys.transmitterProcessingStart, datetime.now().isoformat())

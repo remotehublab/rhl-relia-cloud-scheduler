@@ -40,6 +40,16 @@ class TaskKeys:
     localTimeRemaining = "localTimeRemaining"
     inactiveSince = "inactiveSince"
 
+    class Status:
+        completed = 'completed'
+        queued = 'queued'
+        deleted = 'deleted'
+        error = 'error'
+        receiver_still_processing = 'receiver-still-processing'
+        transmitter_still_processing = 'transmitter-still-processing'
+        receiver_assigned = 'receiver-assigned'
+        fully_assigned = 'fully-assigned'
+
     @staticmethod
     def tasks() -> str:
         return f"{TaskKeys.base_key()}:relia:scheduler:tasks"
