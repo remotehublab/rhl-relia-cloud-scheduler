@@ -113,7 +113,10 @@ def get_errors(user_id):
 
 @scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
 def poll(task_id):
-    redis_store.setex(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active", 10, "1")
+    if redis_store.hget(TaskKeys.identifier(task_id), TaskKeys.uniqueIdentifier) is not None:
+        pipeline = redis_store.pipeline()
+        pipeline.hset(TaskKeys.identifier(task_id), TaskKeys.inactiveSince, str(time.time()))
+        pipeline.execute()
     return jsonify(success=True)
 
 @scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
@@ -257,7 +260,7 @@ def load_task(user_id):
     pipeline.hset(t, TaskKeys.errorMessage, "null")
     pipeline.hset(t, TaskKeys.errorTime, "null")
     pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
-    pipeline.hset(t, TaskKeys.inactiveCount, "0")
+    pipeline.hset(t, TaskKeys.inactiveSince, str(time.time()))
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -328,8 +331,13 @@ def complete_device_task(type, task_identifier):
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, status=None, message="Invalid device credentials"), 401
-    
+
     device_base = device.split(':')[0]
+    response = _complete_device_task_impl(device_base, type, task_identifier)
+    return jsonify(**response)
+
+
+def _complete_device_task_impl(device_base: str, type: str, task_identifier: str) -> dict:
     t = TaskKeys.identifier(task_identifier)
     status_msg = "Error"
     if type == "receiver":
@@ -349,7 +357,11 @@ def complete_device_task(type, task_identifier):
         elif redis_store.hget(t, TaskKeys.status) == "transmitter still processing":
             redis_store.hset(t, TaskKeys.status, "completed")
             status_msg = "completed"
-    return jsonify(success=True, status=status_msg, message="Completed")
+    return {
+        'success': True, 
+        'status': status_msg, 
+        'message': "Completed",
+    }
 
 @scheduler_blueprint.route('/devices/task-status/<task_identifier>', methods=['GET', 'POST'])
 def get_task_status(task_identifier):
@@ -357,34 +369,40 @@ def get_task_status(task_identifier):
     if device is None:
         return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
 
+    device_base: str = device.split(':')[0]
+
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
-    if author == None:
+    if author is None:
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, "None")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")   
-    x = is_task_active(task_identifier)
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
+
+    _stop_task_if_inactive(device_base, task_identifier)
     return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
 
-@scheduler_blueprint.route('/devices/tasks/poll/<task_id>', methods=['GET', 'POST'])
-def is_task_active(task_id):
-    t = TaskKeys.identifier(task_id)
-    ic = redis_store.hget(t, TaskKeys.inactiveCount)
-    if ic != None:
-        current_app.logger.info(redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active"))
-        current_app.logger.info(ic)
-        if redis_store.get(f"{TaskKeys.base_key()}:relia:data:tasks:{task_id}:user-active") not in ("1", b"1"):
-            redis_store.hset(t, TaskKeys.inactiveCount, str(int(ic) + 1))
-            if int(ic) > 5:
-                complete_device_task("receiver", task_id)
-                complete_device_task("transmitter", task_id)
-                return False
-    return True
+def _stop_task_if_inactive(device_base: str, task_id: str) -> bool:
+    """
+    Check if the user has not polled in a while, and then remove the task from the receiver and transmitter if that's the case.
+
+    We return if the task is stopped.
+    """
+    inactive_since = redis_store.hget(TaskKeys.identifier(task_id), TaskKeys.inactiveSince)
+    if inactive_since is not None: # i.e., the task still exists
+        current_app.logger.info(inactive_since)
+        inactive_since_timestamp = float(inactive_since)
+        elapsed = time.time() - inactive_since_timestamp
+        # in 10 seconds without any poll from the student, we delete the session to allow someone else to use the lab
+        if elapsed > current_app.config['MAX_TIME_WITHOUT_POLLING']:
+            _complete_device_task_impl(device_base, "receiver", task_id)
+            _complete_device_task_impl(device_base, "transmitter", task_id)
+            return True
+    return False
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def assign_task_primary():
@@ -428,7 +446,7 @@ def assign_task_primary():
         # find a task, then assign it
         for priority in redis_store.zrange(TaskKeys.priorities(), 0, -1):
             task_identifier = redis_store.rpop(TaskKeys.priority_queue(priority))
-            if not is_task_active(task_identifier):
+            if _stop_task_if_inactive(device_base, task_identifier):
                 task_identifier = None
             if task_identifier is not None:
                 break
@@ -437,7 +455,7 @@ def assign_task_primary():
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
+        return jsonify(success=True, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
         
     # at this point, there is a task, which was the next task taking into account
     # priority and FIFO.
@@ -485,14 +503,15 @@ def assign_task_secondary():
             t = TaskKeys.identifier(task_identifier)
             if redis_store.hget(t, TaskKeys.status) != "receiver assigned":
                 task_identifier = None
-            if task_identifier != None and not is_task_active(task_identifier):
-                task_identifier = None
+            if task_identifier is not None:
+                if _stop_task_if_inactive(device_base, task_identifier):
+                    task_identifier = None
 
         if task_identifier is None:
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")  
+        return jsonify(success=True, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")  
 
     # Store in Redis that the transmitter has been assigned and return the task information to the user
     pipeline = redis_store.pipeline()

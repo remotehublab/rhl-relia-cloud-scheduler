@@ -11,6 +11,7 @@ class Config:
     DEVICE_CREDENTIALS_FILENAME = os.environ.get('DEVICE_CREDENTIALS_FILENAME') or 'device-credentials.json'
     RELIA_BACKEND_TOKEN = os.environ.get('RELIA_BACKEND_TOKEN')
     MAX_TIME_RUNNING = float(os.environ.get('MAX_TIME_RUNNING') or '60')
+    MAX_TIME_WITHOUT_POLLING = float(os.environ.get('MAX_TIME_WITHOUT_POLLING') or '10')
     
 
 class DevelopmentConfig(Config):
