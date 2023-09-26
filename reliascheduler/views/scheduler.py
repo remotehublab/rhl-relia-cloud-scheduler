@@ -23,8 +23,30 @@ logger = logging.getLogger(__name__)
 
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
-@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
+@scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
 def get_one_task(task_identifier, user_id):
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)
+    if author == None:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
+
+    pipeline = redis_store.pipeline()
+    pipeline.hget(t, TaskKeys.status)
+    pipeline.hget(t, TaskKeys.receiverAssigned)
+    pipeline.hget(t, TaskKeys.transmitterAssigned)
+    status, receiver, transmitter, session_id = pipeline.execute()
+    return jsonify(success=True, status=status, receiver=receiver, transmitter=transmitter, message="Success")
+
+
+@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
+def get_one_task_with_user(task_identifier, user_id): # TODO: To be deleted
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if author == None:
@@ -270,8 +292,35 @@ def load_task(user_id):
      
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
+@scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['POST'])
+def delete_task(task_identifier):
+    request_data = request.get_json(silent=True, force=True)
+    if request_data.get('action') == "delete":
+        t = TaskKeys.identifier(task_identifier)
+        priority = redis_store.hget(t, TaskKeys.priority)
+        if priority == None:
+            pipeline = redis_store.pipeline()
+            pipeline.sadd(ErrorKeys.errors(), task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, "unknown")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+            results = pipeline.execute()
+            return jsonify(success=False, message="Invalid task identifier")
+
+        redis_store.hset(t, TaskKeys.status, TaskKeys.Status.deleted)
+        if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.queued:
+            task_identifier = redis_store.rpop(TaskKeys.priority_queue(redis_store.hget(t, TaskKeys.priority)))
+        if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
+            device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
+            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
+        redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
+        redis_store.srem(TaskKeys.tasks(), task_identifier)
+  
+    return jsonify(success=True, message="Successfully deleted")
+
 @scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
-def delete_task(task_identifier, user_id):
+def delete_task_with_user(task_identifier, user_id): # TO BE DELETED
     request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
@@ -305,6 +354,7 @@ def delete_task(task_identifier, user_id):
         redis_store.srem(TaskKeys.tasks(), task_identifier)
   
     return jsonify(success=True, message="Successfully deleted")
+
 
 @scheduler_blueprint.route('/user/complete-tasks/<task_identifier>', methods=['GET', 'POST'])
 def complete_user_task(task_identifier):
