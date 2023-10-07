@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
-def get_one_task(task_identifier, user_id):
+def get_one_task(task_identifier):
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if author == None:
