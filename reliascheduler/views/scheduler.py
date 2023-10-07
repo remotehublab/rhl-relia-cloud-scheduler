@@ -41,7 +41,7 @@ def get_one_task(task_identifier):
     pipeline.hget(t, TaskKeys.status)
     pipeline.hget(t, TaskKeys.receiverAssigned)
     pipeline.hget(t, TaskKeys.transmitterAssigned)
-    status, receiver, transmitter, session_id = pipeline.execute()
+    status, receiver, transmitter = pipeline.execute()
     return jsonify(success=True, status=status, receiver=receiver, transmitter=transmitter, message="Success")
 
 
