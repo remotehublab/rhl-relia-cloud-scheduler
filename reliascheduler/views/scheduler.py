@@ -141,8 +141,8 @@ def poll(task_id):
         pipeline.execute()
     return jsonify(success=True)
 
-@scheduler_blueprint.route('/user/tasks/<user_id>', methods=['POST'])
-def load_task(user_id):
+@scheduler_blueprint.route('/user/tasks/', methods=['POST'])
+def load_task():
 
     authenticated = check_backend_credentials()
     if not authenticated:
@@ -179,6 +179,7 @@ def load_task(user_id):
     session_id = request_data.get('session_id')
 
     grc_files = request_data.get('grc_files')
+    user_id = request_data.get('user_id')
     if not grc_files:
         task_identifier = secrets.token_urlsafe()
         while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
