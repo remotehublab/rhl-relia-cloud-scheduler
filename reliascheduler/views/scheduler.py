@@ -26,11 +26,13 @@ def get_one_task(task_identifier):
         pipeline = redis_store.pipeline()
         pipeline.sadd(ErrorKeys.errors(), task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, "No author")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
         results = pipeline.execute()
         return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
+    
+    mark_as_poll(task_identifier)
 
     pipeline = redis_store.pipeline()
     pipeline.hget(t, TaskKeys.status)
@@ -128,12 +130,16 @@ def get_errors(user_id):
             new_error_messages.append(error_messages[i])
     return jsonify(success=True, ids=new_task_id, errors=new_error_messages)
 
-@scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
-def poll(task_id):
+def mark_as_poll(task_id):
     if redis_store.hget(TaskKeys.identifier(task_id), TaskKeys.uniqueIdentifier) is not None:
         pipeline = redis_store.pipeline()
         pipeline.hset(TaskKeys.identifier(task_id), TaskKeys.inactiveSince, str(time.time()))
         pipeline.execute()
+
+@scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
+def poll(task_id):
+    # TODO: not really called ever, and we do call /user/tasks/<task_id> often, so maybe we can delete this
+    mark_as_poll(task_id)
     return jsonify(success=True)
 
 @scheduler_blueprint.route('/user/tasks/', methods=['POST'])
