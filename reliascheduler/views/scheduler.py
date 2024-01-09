@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 scheduler_blueprint = Blueprint('scheduler', __name__)
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['GET'])
-def get_one_task(task_identifier):
+def user_get_task(task_identifier):
     t = TaskKeys.identifier(task_identifier)
     author = redis_store.hget(t, TaskKeys.author)
     if author == None:
@@ -42,7 +42,7 @@ def get_one_task(task_identifier):
     return jsonify(success=True, status=status, receiver=receiver, transmitter=transmitter, message="Success")
 
 @scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
-def get_errors(user_id):
+def user_get_errors(user_id):
     authenticated = check_backend_credentials()
     if not authenticated:
         return jsonify(success=False, ids=None, errors=None), 401
@@ -79,7 +79,7 @@ def mark_as_poll(task_id):
         pipeline.execute()
 
 @scheduler_blueprint.route('/user/tasks/', methods=['POST'])
-def create_task():
+def user_create_task():
     """
     This method is called by the backend, and the purpose is to create a new task.
     Typically, the user calls the backend every time they want to submit some code, and then
@@ -235,7 +235,7 @@ def create_task():
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
 @scheduler_blueprint.route('/user/tasks/<task_identifier>', methods=['POST'])
-def delete_task(task_identifier):
+def user_delete_task(task_identifier):
     request_data = request.get_json(silent=True, force=True)
     if request_data.get('action') == "delete":
         t = TaskKeys.identifier(task_identifier)
@@ -263,7 +263,7 @@ def delete_task(task_identifier):
 
 
 @scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
-def complete_device_task(type, task_identifier):
+def devices_complete_task(type, task_identifier):
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, status=None, message="Invalid device credentials"), 401
@@ -271,6 +271,32 @@ def complete_device_task(type, task_identifier):
     device_base = device.split(':')[0]
     response = _complete_device_task_impl(device_base, type, task_identifier)
     return jsonify(**response)
+
+@scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['GET'])
+def devices_get_task_status(type, task_identifier):
+    """
+    Get task (device perspective)
+    """
+    device = check_device_credentials()
+    if device is None:
+        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+
+    device_base: str = device.split(':')[0]
+
+    t = TaskKeys.identifier(task_identifier)
+    author = redis_store.hget(t, TaskKeys.author)
+    if author is None:
+        pipeline = redis_store.pipeline()
+        pipeline.sadd(ErrorKeys.errors(), task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, "None")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
+        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+        results = pipeline.execute()
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
+
+    _stop_task_if_inactive(device_base, task_identifier)
+    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
 
 
 def _complete_device_task_impl(device_base: str, type: str, task_identifier: str) -> dict:
@@ -299,29 +325,6 @@ def _complete_device_task_impl(device_base: str, type: str, task_identifier: str
         'message': "Completed",
     }
 
-@scheduler_blueprint.route('/devices/task-status/<task_identifier>', methods=['GET', 'POST'])
-def get_task_status(task_identifier):
-    device = check_device_credentials()
-    if device is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
-
-    device_base: str = device.split(':')[0]
-
-    t = TaskKeys.identifier(task_identifier)
-    author = redis_store.hget(t, TaskKeys.author)
-    if author is None:
-        pipeline = redis_store.pipeline()
-        pipeline.sadd(ErrorKeys.errors(), task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, "None")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-        results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
-
-    _stop_task_if_inactive(device_base, task_identifier)
-    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
-
 def _stop_task_if_inactive(device_base: str, task_id: str) -> bool:
     """
     Check if the user has not polled in a while, and then remove the task from the receiver and transmitter if that's the case.
@@ -341,7 +344,7 @@ def _stop_task_if_inactive(device_base: str, task_id: str) -> bool:
     return False
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
-def assign_task_primary():
+def devices_assign_task_primary():
     """
     Assign a task to the receiver. The receiver is the primary device: only once the receiver has received a taks, the transmitter
     gets the task.
@@ -415,7 +418,7 @@ def assign_task_primary():
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
-def assign_task_secondary():
+def devices_assign_task_secondary():
     """
     Assign a task to the transmitter. The transmitter is the secondary device: it waits until the receiver
     is assigned a task to be assigned a task.
@@ -473,7 +476,7 @@ def assign_task_secondary():
     return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
-def assign_error_message(task_identifier):
+def devices_assign_error_message(task_identifier):
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, message="Invalid device credentials"), 401
