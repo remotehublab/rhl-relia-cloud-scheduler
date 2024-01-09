@@ -42,30 +42,6 @@ def get_one_task(task_identifier):
     return jsonify(success=True, status=status, receiver=receiver, transmitter=transmitter, message="Success")
 
 
-@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['GET'])
-def get_one_task_with_user(task_identifier, user_id): # TODO: To be deleted
-    t = TaskKeys.identifier(task_identifier)
-    author = redis_store.hget(t, TaskKeys.author)
-    if author == None:
-        pipeline = redis_store.pipeline()
-        pipeline.sadd(ErrorKeys.errors(), task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-        results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist") 
-    if author != user_id:
-        pipeline = redis_store.pipeline()
-        pipeline.sadd(ErrorKeys.errors(), task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to access the status of the task")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-        results = pipeline.execute()
-        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="You do not have permission to access the status of the task")
-    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
-
 @scheduler_blueprint.route('/user/all-tasks/<user_id>', methods=['GET'])
 def get_all_tasks(user_id):
     authenticated = check_backend_credentials()
@@ -135,12 +111,6 @@ def mark_as_poll(task_id):
         pipeline = redis_store.pipeline()
         pipeline.hset(TaskKeys.identifier(task_id), TaskKeys.inactiveSince, str(time.time()))
         pipeline.execute()
-
-@scheduler_blueprint.route('/user/tasks/poll/<task_id>', methods=['GET', 'POST'])
-def poll(task_id):
-    # TODO: not really called ever, and we do call /user/tasks/<task_id> often, so maybe we can delete this
-    mark_as_poll(task_id)
-    return jsonify(success=True)
 
 @scheduler_blueprint.route('/user/tasks/', methods=['POST'])
 def create_task():
@@ -325,62 +295,6 @@ def delete_task(task_identifier):
   
     return jsonify(success=True, message="Successfully deleted")
 
-@scheduler_blueprint.route('/user/tasks/<task_identifier>/<user_id>', methods=['POST'])
-def delete_task_with_user(task_identifier, user_id): # TO BE DELETED
-    request_data = request.get_json(silent=True, force=True)
-    if request_data.get('action') == "delete":
-        t = TaskKeys.identifier(task_identifier)
-        priority = redis_store.hget(t, TaskKeys.priority)
-        if priority == None:
-            pipeline = redis_store.pipeline()
-            pipeline.sadd(ErrorKeys.errors(), task_identifier)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "Task identifier does not exist")
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-            results = pipeline.execute()
-            return jsonify(success=False, message="Invalid task identifier")
-        if redis_store.hget(t, TaskKeys.author) != user_id:
-            pipeline = redis_store.pipeline()
-            pipeline.sadd(ErrorKeys.errors(), task_identifier)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You do not have permission to delete the task")
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-            results = pipeline.execute()
-            return jsonify(success=False, message="Task not authored by user")
-
-        redis_store.hset(t, TaskKeys.status, TaskKeys.Status.deleted)
-        if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.queued:
-            task_identifier = redis_store.rpop(TaskKeys.priority_queue(redis_store.hget(t, TaskKeys.priority)))
-        if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
-            device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
-            redis_store.set(DeviceKeys.device_assignment(device_base), "null")
-        redis_store.lrem(TaskKeys.priority_queue(int(priority)), 1, task_identifier)      
-        redis_store.srem(TaskKeys.tasks(), task_identifier)
-  
-    return jsonify(success=True, message="Successfully deleted")
-
-
-@scheduler_blueprint.route('/user/complete-tasks/<task_identifier>', methods=['GET', 'POST'])
-def complete_user_task(task_identifier):
-    t = TaskKeys.identifier(task_identifier)
-    author = redis_store.hget(t, TaskKeys.author)
-    if redis_store.hget(t, TaskKeys.status) == TaskKeys.Status.queued: 
-        pipeline = redis_store.pipeline()
-        pipeline.sadd(ErrorKeys.errors(), task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, author)
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, "You are accessing an invalid page")
-        pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-        results = pipeline.execute()
-        return jsonify(success=False, status=None, message="You are accessing an invalid page") 
-
-    redis_store.hset(t, TaskKeys.status, TaskKeys.Status.completed)
-    if redis_store.hget(t, TaskKeys.receiverAssigned) != "null":
-        device_base = redis_store.hget(t, TaskKeys.receiverAssigned).split(':')[0]
-        redis_store.set(DeviceKeys.device_assignment(device_base), "null")
-    return jsonify(success=True, status="completed", message="Completed")
 
 @scheduler_blueprint.route('/devices/tasks/<type>/<task_identifier>', methods=['POST'])
 def complete_device_task(type, task_identifier):
