@@ -40,7 +40,14 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.transmitterAssigned)
     pipeline.hget(t, TaskKeys.deviceAssigned)
     status, receiver, transmitter, device = pipeline.execute()
-    return jsonify(success=True, status=status, device=device, receiver=receiver, transmitter=transmitter, message="Success")
+    return jsonify(
+        success=True, 
+        status=status, 
+        assignedInstance=device, 
+        receiver=receiver, 
+        transmitter=transmitter, 
+        message="Success"
+    )
 
 @scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
 def user_get_errors(user_id):
@@ -280,7 +287,14 @@ def devices_get_task_status(type, task_identifier):
         return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Task identifier does not exist")
 
     _stop_task_if_inactive(device_base, task_identifier)
-    return jsonify(success=True, status=redis_store.hget(t, TaskKeys.status), receiver=redis_store.hget(t, TaskKeys.receiverAssigned), transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), session_id=redis_store.hget(t, TaskKeys.sessionId), message="Success")
+    return jsonify(
+        success=True, 
+        status=redis_store.hget(t, TaskKeys.status), 
+        receiver=redis_store.hget(t, TaskKeys.receiverAssigned), 
+        transmitter=redis_store.hget(t, TaskKeys.transmitterAssigned), 
+        session_id=redis_store.hget(t, TaskKeys.sessionId), 
+        message="Success"
+    )
 
 
 def _complete_device_task_impl(device_base: str, type: str, task_identifier: str) -> dict:
