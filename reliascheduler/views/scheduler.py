@@ -42,10 +42,18 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.receiverFilename)
     pipeline.hget(t, TaskKeys.transmitterFilename)
     status, receiver, transmitter, device, receiver_filename, transmitter_filename  = pipeline.execute()
+
+    if device and os.path.exists("devices.yml"):
+        devices_metadata = yaml.safe_load(open("devices.yml").read())
+        camera_url = devices_metadata.get(device, {}).get('camera')
+    else:
+        camera_url = None
+
     return jsonify(
         success=True, 
         status=status, 
-        assignedInstance=device, 
+        assignedInstance=device,
+        cameraUrl=camera_url,
         receiver=receiver, 
         transmitter=transmitter, 
         receiverFilename=receiver_filename,
