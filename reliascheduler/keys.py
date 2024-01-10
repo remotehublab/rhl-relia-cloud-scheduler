@@ -32,6 +32,7 @@ class TaskKeys:
     priority = "priority"
     transmitterAssigned = "transmitterAssigned"
     receiverAssigned = "receiverAssigned"
+    deviceAssigned = "deviceAssigned"
     transmitterProcessingStart = "transmitterProcessingStart"
     receiverProcessingStart = "receiverProcessingStart"
     status = "status"

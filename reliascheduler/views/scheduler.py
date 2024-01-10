@@ -38,8 +38,9 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.status)
     pipeline.hget(t, TaskKeys.receiverAssigned)
     pipeline.hget(t, TaskKeys.transmitterAssigned)
-    status, receiver, transmitter = pipeline.execute()
-    return jsonify(success=True, status=status, receiver=receiver, transmitter=transmitter, message="Success")
+    pipeline.hget(t, TaskKeys.deviceAssigned)
+    status, receiver, transmitter, device = pipeline.execute()
+    return jsonify(success=True, status=status, device=device, receiver=receiver, transmitter=transmitter, message="Success")
 
 @scheduler_blueprint.route('/user/error-messages/<user_id>', methods=['GET'])
 def user_get_errors(user_id):
@@ -119,12 +120,13 @@ def user_create_task():
 
     session_id = request_data.get('session_id')
 
+    task_identifier = secrets.token_urlsafe()
+    while redis_store.sadd(TaskKeys.tasks(), task_identifier) == 0:
+        task_identifier = secrets.token_urlsafe()
+
     grc_files = request_data.get('grc_files')
     user_id = request_data.get('user_id')
     if not grc_files:
-        task_identifier = secrets.token_urlsafe()
-        while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
-            task_identifier = secrets.token_urlsafe()
         pipeline = redis_store.pipeline()
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
         pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
@@ -136,9 +138,6 @@ def user_create_task():
     for grc_file_type in ('receiver', 'transmitter'):
         grc_file_data = grc_files.get(grc_file_type)
         if not grc_file_data:
-            task_identifier = secrets.token_urlsafe()
-            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
-                task_identifier = secrets.token_urlsafe()
             pipeline = redis_store.pipeline()
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
@@ -149,9 +148,6 @@ def user_create_task():
 
         filename = grc_file_data.get('filename')
         if not filename:
-            task_identifier = secrets.token_urlsafe()
-            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
-                task_identifier = secrets.token_urlsafe()
             pipeline = redis_store.pipeline()
             pipeline.sadd(ErrorKeys.errors(), task_identifier)
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
@@ -162,9 +158,6 @@ def user_create_task():
             return jsonify(success=False, taskIdentifier=None, status=None, message=f"No filename found in {grc_file_type} in grc_files")
         content = grc_file_data.get('content')
         if not content:
-            task_identifier = secrets.token_urlsafe()
-            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
-                task_identifier = secrets.token_urlsafe()
             pipeline = redis_store.pipeline()
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
@@ -176,9 +169,6 @@ def user_create_task():
         try:
             yaml.safe_load(content)
         except Exception as err:
-            task_identifier = secrets.token_urlsafe()
-            while redis_store.sadd(ErrorKeys.errors(), task_identifier) == 0:
-                task_identifier = secrets.token_urlsafe()
             pipeline = redis_store.pipeline()
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
             pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
@@ -198,12 +188,6 @@ def user_create_task():
     # We rely on a set to know which keys have been added and are unique.
     # The key means that there has been an attempt to create the key, it does not
     # mean that the key is currently active (and might need to be cleaned)
-    if (request_data.get('task_id') == "None"):
-        task_identifier = secrets.token_urlsafe()
-        while redis_store.sadd(TaskKeys.tasks(), task_identifier) == 0:
-            task_identifier = secrets.token_urlsafe()
-    else:
-        task_identifier = request_data.get('task_id')
 
     t = TaskKeys.identifier(task_identifier)
     pipeline = redis_store.pipeline()
@@ -408,6 +392,7 @@ def devices_assign_task_primary():
     pipeline.hget(t, TaskKeys.receiverFile)
     pipeline.hget(t, TaskKeys.sessionId)
     pipeline.hset(t, TaskKeys.receiverAssigned, device)
+    pipeline.hset(t, TaskKeys.deviceAssigned, device_base)
     pipeline.hset(t, TaskKeys.status, TaskKeys.Status.receiver_assigned)
     pipeline.set(DeviceKeys.device_assignment(device_base), task_identifier)
     results = pipeline.execute()
