@@ -40,6 +40,8 @@ class TaskKeys:
     errorTime = "errorTime"
     localTimeRemaining = "localTimeRemaining"
     inactiveSince = "inactiveSince"
+    transmitterFiletype = "transmitterFiletype"
+    receiverFiletype = "receiverFiletype"
 
     class Status:
         completed = 'completed'

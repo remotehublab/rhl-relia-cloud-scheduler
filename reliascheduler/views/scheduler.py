@@ -200,8 +200,10 @@ def user_create_task():
     # We have checked the data, so we can now do:
     transmitter_filename = grc_files['transmitter']['filename']
     transmitter_file = grc_files['transmitter']['content']
+    transmitter_file_type = grc_files['transmitter']['type']
     receiver_filename = grc_files['receiver']['filename']
     receiver_file = grc_files['receiver']['content']
+    receiver_file_type = grc_files['receiver']['type']
 
     # Load into Redis
     # We rely on a set to know which keys have been added and are unique.
@@ -228,6 +230,8 @@ def user_create_task():
     pipeline.hset(t, TaskKeys.errorTime, "null")
     pipeline.hset(t, TaskKeys.localTimeRemaining, "0")
     pipeline.hset(t, TaskKeys.inactiveSince, str(time.time()))
+    pipeline.hset(t, TaskKeys.transmitterFiletype, transmitter_file_type)
+    pipeline.hset(t, TaskKeys.receiverFiletype, receiver_file_type)
 
     # Add to the corresponding bucket queue the task identifier
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
@@ -282,7 +286,7 @@ def devices_get_task_status(type, task_identifier):
     """
     device = check_device_credentials()
     if device is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+        return jsonify(success=False, status=None, receiver=None, transmitter=None, session_id=None, message="Invalid device credentials"), 401
 
     device_base: str = device.split(':')[0]
 
@@ -361,7 +365,7 @@ def devices_assign_task_primary():
     """
     device = check_device_credentials()
     if device is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+        return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
     max_time_running = current_app.config['MAX_TIME_RUNNING']
@@ -369,7 +373,7 @@ def devices_assign_task_primary():
     if task_identifier and task_identifier != "null":
         user_id = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.author)
         if (datetime.now() - datetime.fromisoformat(redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart))).total_seconds() < max_time_running:
-            return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
+            return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
         else:
             pipeline = redis_store.pipeline()
             pipeline.hset(TaskKeys.identifier(task_identifier), TaskKeys.status, TaskKeys.Status.completed)
@@ -408,7 +412,7 @@ def devices_assign_task_primary():
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=True, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
+        return jsonify(success=True, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")
         
     # at this point, there is a task, which was the next task taking into account
     # priority and FIFO.
@@ -417,6 +421,7 @@ def devices_assign_task_primary():
     pipeline.hget(t, TaskKeys.receiverFilename)
     pipeline.hget(t, TaskKeys.receiverFile)
     pipeline.hget(t, TaskKeys.sessionId)
+    pipeline.hget(t, TaskKeys.receiverFiletype)
     pipeline.hset(t, TaskKeys.receiverAssigned, device)
     pipeline.hset(t, TaskKeys.deviceAssigned, device_base)
     pipeline.hset(t, TaskKeys.status, TaskKeys.Status.receiver_assigned)
@@ -426,7 +431,7 @@ def devices_assign_task_primary():
     redis_store.hset(t, TaskKeys.receiverProcessingStart, datetime.now().isoformat())
     session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
     redis_store.sadd(session_key, device)
-    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
+    return jsonify(success=True, file=results[0], fileContent=results[1], sessionIdentifier=results[2], filetype=results[3], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
 def devices_assign_task_secondary():
@@ -436,7 +441,7 @@ def devices_assign_task_secondary():
     """
     device = check_device_credentials()
     if device is None:
-        return jsonify(success=False, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+        return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
 
     device_base = device.split(':')[0]
     max_time_running = current_app.config['MAX_TIME_RUNNING']
@@ -469,7 +474,7 @@ def devices_assign_task_secondary():
             time.sleep(0.1)
 
     if task_identifier is None:
-        return jsonify(success=True, grcFile=None, grcFileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")  
+        return jsonify(success=True, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="No tasks in queue")  
 
     # Store in Redis that the transmitter has been assigned and return the task information to the user
     pipeline = redis_store.pipeline()
@@ -477,6 +482,7 @@ def devices_assign_task_secondary():
     pipeline.hget(t, TaskKeys.transmitterFilename)
     pipeline.hget(t, TaskKeys.transmitterFile)
     pipeline.hget(t, TaskKeys.sessionId)
+    pipeline.hget(t, TaskKeys.transmitterFiletype)
     pipeline.hset(t, TaskKeys.transmitterAssigned, device)
     pipeline.hset(t, TaskKeys.status, TaskKeys.Status.fully_assigned)
     results = pipeline.execute()
@@ -484,7 +490,7 @@ def devices_assign_task_secondary():
     redis_store.hset(t, TaskKeys.transmitterProcessingStart, datetime.now().isoformat())
     session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
     redis_store.sadd(session_key, device)
-    return jsonify(success=True, grcFile=results[0], grcFileContent=results[1], sessionIdentifier=results[2], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
+    return jsonify(success=True, file=results[0], fileContent=results[1], sessionIdentifier=results[2], filetype=results[3], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/error_message/<task_identifier>', methods=['POST'])
 def devices_assign_error_message(task_identifier):
