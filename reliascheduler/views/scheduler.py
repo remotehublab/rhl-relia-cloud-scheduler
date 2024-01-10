@@ -39,13 +39,17 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.receiverAssigned)
     pipeline.hget(t, TaskKeys.transmitterAssigned)
     pipeline.hget(t, TaskKeys.deviceAssigned)
-    status, receiver, transmitter, device = pipeline.execute()
+    pipeline.hget(t, TaskKeys.receiverFilename)
+    pipeline.hget(t, TaskKeys.transmitterFilename)
+    status, receiver, transmitter, device, receiver_filename, transmitter_filename  = pipeline.execute()
     return jsonify(
         success=True, 
         status=status, 
         assignedInstance=device, 
         receiver=receiver, 
         transmitter=transmitter, 
+        receiverFilename=receiver_filename,
+        transmitterFilename=transmitter_filename,
         message="Success"
     )
 
