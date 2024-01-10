@@ -185,17 +185,19 @@ def user_create_task():
             result = pipeline.execute()
             return jsonify(success=False, taskIdentifier=None, status=None, message=f"No content found in {grc_file_type} in grc_files")
 
-        try:
-            yaml.safe_load(content)
-        except Exception as err:
-            pipeline = redis_store.pipeline()
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"Invalid content (not yaml) for provided {grc_file_type}")
-            pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
-            result = pipeline.execute()
-            return jsonify(success=False, taskIdentifier=None, status=None, message=f"Invalid content (not yaml) for provided {grc_file_type}")
-        # in the future we might check more things about the .grc files
+        file_type = grc_file_data.get('type')
+        if file_type == 'grc':
+            try:
+                yaml.safe_load(content)
+            except Exception as err:
+                pipeline = redis_store.pipeline()
+                pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.uniqueIdentifier, task_identifier)
+                pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.author, user_id)
+                pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorMessage, f"Invalid content (not yaml) for provided {grc_file_type}")
+                pipeline.hset(ErrorKeys.identifier(task_identifier), ErrorKeys.errorTime, datetime.now().isoformat())
+                result = pipeline.execute()
+                return jsonify(success=False, taskIdentifier=None, status=None, message=f"Invalid content (not yaml) for provided {grc_file_type}")
+            # in the future we might check more things about the .grc files
 
     # We have checked the data, so we can now do:
     transmitter_filename = grc_files['transmitter']['filename']
