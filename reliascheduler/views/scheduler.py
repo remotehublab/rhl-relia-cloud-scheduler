@@ -239,6 +239,8 @@ def user_create_task():
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
     pipeline.zadd(TaskKeys.priorities(), { str(priority): priority })
 
+    logger.warning(f"Task {task_identifier} queued with priority {priority} created for user {user_id}")
+
     result = pipeline.execute()
      
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
