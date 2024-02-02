@@ -80,6 +80,9 @@ class DeviceKeys:
 
     def devices(self):
         return f"{self.base_key}:relia:scheduler:devices:{self.device_id}"
+    
+    def last_check(self):
+        return f"{self.base_key}:relia:scheduler:devices:{self.device_id}:last_check"
 
     @staticmethod
     def device_assignment(device_id):

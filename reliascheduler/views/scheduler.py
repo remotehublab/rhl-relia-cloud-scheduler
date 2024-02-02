@@ -1,9 +1,11 @@
+from collections import OrderedDict
 import os
 import glob
 import time
 import secrets
 import logging
 from datetime import datetime
+from typing import Dict
 
 import yaml
 import numpy as np
@@ -239,9 +241,14 @@ def user_create_task():
     pipeline.lpush(TaskKeys.priority_queue(priority), task_identifier)
     pipeline.zadd(TaskKeys.priorities(), { str(priority): priority })
 
-    logger.warning(f"Task {task_identifier} queued with priority {priority} created for user {user_id}")
-
     result = pipeline.execute()
+
+    logger.warning(f"Task {task_identifier} queued with priority {priority} created for user {user_id}")
+    logger.warning("Last time we saw each device:")
+    for device_name, device_data in _available_devices_last_check():
+        logger.warning(f" - {device_name}: {device_data}.")
+        
+    logger.warning()
      
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
@@ -361,6 +368,36 @@ def _stop_task_if_inactive(device_base: str, task_id: str) -> bool:
             return True
     return False
 
+def _available_devices_last_check() -> Dict[str, Dict[str, str]]:
+    """
+    Return the device names and the last time they were seen
+    """
+    now = datetime.utcnow()
+    device_keys = sorted(list(redis_store.keys(DeviceKeys("*").last_check())))
+    device_names = [ ':'.join(device_key.split(':')[-3:-1]) for device_key in device_keys ]
+    pipeline = redis_store.pipeline()
+    for device in device_keys:
+        pipeline.get(device)
+    
+    device_data = OrderedDict()
+    for device_name, last_check in zip(device_names, pipeline.execute()):
+        if last_check:
+            last_check_human = f"{(now - datetime.fromisoformat(last_check)).total_seconds()} seconds ago"
+        else:
+            last_check_human = "Unknown number of seconds ago"
+
+        device_data[device_name] = {
+            "last_check": last_check_human,
+            "assignment": redis_store.get(DeviceKeys.device_assignment(device_name.split(':')[0])),
+        }
+    return device_data
+
+@scheduler_blueprint.route('/devices/available')
+def available_devices():    
+    device_data = _available_devices_last_check()
+    return jsonify(success=True, device_data=device_data)
+
+
 @scheduler_blueprint.route('/devices/tasks/receiver')
 def devices_assign_task_primary():
     """
@@ -370,13 +407,17 @@ def devices_assign_task_primary():
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+    
+    redis_store.setex(DeviceKeys(device).last_check(), 24 * 3600, datetime.utcnow().isoformat())
 
     device_base = device.split(':')[0]
     max_time_running = current_app.config['MAX_TIME_RUNNING']
     task_identifier = redis_store.get(DeviceKeys.device_assignment(device_base))
     if task_identifier and task_identifier != "null":
         user_id = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.author)
-        if (datetime.now() - datetime.fromisoformat(redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart))).total_seconds() < max_time_running:
+        receiver_processing_start = redis_store.hget(TaskKeys.identifier(task_identifier), TaskKeys.receiverProcessingStart)
+        time_elapsed_since_procsesing_start = (datetime.now() - datetime.fromisoformat(receiver_processing_start)).total_seconds()
+        if time_elapsed_since_procsesing_start < max_time_running:
             return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Device in use")
         else:
             pipeline = redis_store.pipeline()
@@ -446,6 +487,8 @@ def devices_assign_task_secondary():
     device = check_device_credentials()
     if device is None:
         return jsonify(success=False, file=None, fileContent=None, taskIdentifier=None, sessionIdentifier=None, message="Invalid device credentials"), 401
+
+    redis_store.setex(DeviceKeys(device).last_check(), 24 * 3600, datetime.utcnow().isoformat())
 
     device_base = device.split(':')[0]
     max_time_running = current_app.config['MAX_TIME_RUNNING']
