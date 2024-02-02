@@ -476,6 +476,9 @@ def devices_assign_task_primary():
     redis_store.hset(t, TaskKeys.receiverProcessingStart, datetime.now().isoformat())
     session_key = f'relia:data-uploader:sessions:{redis_store.hget(t, TaskKeys.sessionId)}:devices'
     redis_store.sadd(session_key, device)
+
+    logger.warning(f"Task {task_identifier} assigned to setup {device_base}")
+
     return jsonify(success=True, file=results[0], fileContent=results[1], sessionIdentifier=results[2], filetype=results[3], taskIdentifier=task_identifier, maxTime=max_time_running, message="Successfully assigned")
 
 @scheduler_blueprint.route('/devices/tasks/transmitter')
