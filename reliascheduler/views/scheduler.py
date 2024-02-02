@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import json
 import os
 import glob
 import time
@@ -395,7 +396,7 @@ def _available_devices_last_check() -> Dict[str, Dict[str, str]]:
 @scheduler_blueprint.route('/devices/available')
 def available_devices():    
     device_data = _available_devices_last_check()
-    return jsonify(success=True, device_data=device_data)
+    return json.dumps(dict(success=True, device_data=device_data), indent=4), 200, {"Content-Type": "application/json"}
 
 
 @scheduler_blueprint.route('/devices/tasks/receiver')
