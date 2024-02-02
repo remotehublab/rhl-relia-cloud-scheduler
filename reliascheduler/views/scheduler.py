@@ -245,7 +245,7 @@ def user_create_task():
 
     logger.warning(f"Task {task_identifier} queued with priority {priority} created for user {user_id}")
     logger.warning("Last time we saw each device:")
-    for device_name, device_data in _available_devices_last_check():
+    for device_name, device_data in _available_devices_last_check().items():
         logger.warning(f" - {device_name}: {device_data}.")
         
     logger.warning()
