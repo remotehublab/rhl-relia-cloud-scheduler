@@ -248,7 +248,7 @@ def user_create_task():
     for device_name, device_data in _available_devices_last_check().items():
         logger.warning(f" - {device_name}: {device_data}.")
         
-    logger.warning()
+    logger.warning("-")
      
     return jsonify(success=True, taskIdentifier=task_identifier, status='queued', message="Loading successful")
 
