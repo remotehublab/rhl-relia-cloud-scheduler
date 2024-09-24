@@ -46,7 +46,7 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.transmitterFilename)
     status, receiver, transmitter, device, receiver_filename, transmitter_filename  = pipeline.execute()
 
-    metadata_filename = app.config['DEVICE_METADATA_FILENAME']
+    metadata_filename = current_app.config['DEVICE_METADATA_FILENAME']
 
     if device and os.path.exists(metadata_filename):
         devices_metadata = yaml.safe_load(open(metadata_filename).read())
