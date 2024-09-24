@@ -10,6 +10,7 @@ class Config:
     BASE_KEY = os.environ.get('BASE_KEY')
     MAX_PRIORITY_QUEUE = int(os.environ.get('MAX_PRIORITY_QUEUE') or '15')
     DEVICE_CREDENTIALS_FILENAME = os.environ.get('DEVICE_CREDENTIALS_FILENAME') or 'device-credentials.json'
+    DEVICE_METADATA_FILENAME = os.environ.get('DEVICE_METADATA_FILENAME') or 'devices.yml'
     RELIA_BACKEND_TOKEN = os.environ.get('RELIA_BACKEND_TOKEN')
     MAX_TIME_RUNNING = float(os.environ.get('MAX_TIME_RUNNING') or '60')
     MAX_TIME_WITHOUT_POLLING = float(os.environ.get('MAX_TIME_WITHOUT_POLLING') or '10')

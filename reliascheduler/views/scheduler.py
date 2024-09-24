@@ -46,8 +46,10 @@ def user_get_task(task_identifier):
     pipeline.hget(t, TaskKeys.transmitterFilename)
     status, receiver, transmitter, device, receiver_filename, transmitter_filename  = pipeline.execute()
 
-    if device and os.path.exists("devices.yml"):
-        devices_metadata = yaml.safe_load(open("devices.yml").read())
+    metadata_filename = app.config['DEVICE_METADATA_FILENAME']
+
+    if device and os.path.exists(metadata_filename):
+        devices_metadata = yaml.safe_load(open(metadata_filename).read())
         camera_url = devices_metadata.get(device, {}).get('camera')
     else:
         camera_url = None
